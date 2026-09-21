@@ -100,6 +100,20 @@ export const EFFECTS = {
     params: { value: 'boolean' },
     apply: (s, e) => { s.noExit = !!e.value; },
   },
+  'object.spawn': {
+    desc: '구체적인 물체·생물이 방 안에 놓이거나 나타나기를 바랄 때. 엔진 규칙에는 영향이 없고 눈에 보이기만 한다. '
+      + '위의 Effect 로 옮겨지는 것(권총·칼·지도·시체·괴물)은 여기 쓰지 않는다. '
+      + 'name 은 적힌 그대로의 짧은 한국어 이름, tags 는 생김새를 설명하는 영어 단어 3~6개를 쉼표로, '
+      + 'emoji 는 가장 가까운 이모지 1개, count 는 1~5.',
+    params: { name: 'string', tags: 'string', emoji: 'string', count: 'number' },
+    apply: (s, e) => {
+      const o = normalizeObject(e);
+      if (!o) return;
+      const i = s.objects.findIndex((x) => x.key === o.key);
+      if (i >= 0) s.objects[i] = o;
+      else if (s.objects.length < 30) s.objects.push(o);
+    },
+  },
   'flavor.text': {
     desc: '엔진이 시뮬레이션하지 못하는 내용. 미로 안의 묘사로만 등장한다. 애매하면 전부 여기로 보낸다.',
     params: { text: 'string' },
@@ -110,6 +124,36 @@ export const EFFECTS = {
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number(v) || 0)));
 const clampF = (v, lo, hi) => Math.max(lo, Math.min(hi, Number(v) || lo));
 const clampOdd = (v, lo, hi) => { const n = clamp(v, lo, hi); return n % 2 === 0 ? n + 1 : n; };
+
+/** 같은 물건이면 같은 key. 대소문자·공백 차이는 무시한다. */
+export function objectKey(name) {
+  return String(name).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/** 영어 태그만 남긴다. 라이브러리 파일명과 이미지 생성 프롬프트가 영어라서. */
+export function normalizeTags(tags) {
+  const list = Array.isArray(tags) ? tags : String(tags ?? '').split(',');
+  const out = [];
+  for (const t of list) {
+    const v = String(t).toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/\s+/g, ' ').trim();
+    if (v && !out.includes(v)) out.push(v);
+    if (out.length === 6) break;
+  }
+  return out;
+}
+
+const segmenter = new Intl.Segmenter();
+
+/** LLM 이 낸 object.spawn 을 엔진이 믿을 수 있는 모양으로. 이름이 없으면 null. */
+export function normalizeObject(e) {
+  const name = String(e?.name ?? '').trim().slice(0, 40);
+  if (!name) return null;
+  let tags = normalizeTags(e.tags);
+  if (!tags.length) tags = normalizeTags(name);   // 이름이 영어면 그대로 태그가 된다
+  const first = [...segmenter.segment(String(e.emoji ?? '').trim())][0]?.segment || '';
+  const emoji = /\p{Extended_Pictographic}/u.test(first) ? first : '❔';
+  return { key: objectKey(name), name, tags, emoji, count: clamp(e.count ?? 1, 1, 5) };
+}
 
 /** 최초의 방. 아무것도 없는 빈 공간에 탈출구만 덩그러니. */
 export function initialState() {
@@ -132,6 +176,7 @@ export function initialState() {
     healOnExit: false,
     hunger: 0,
     noExit: false,
+    objects: [],
     flavor: [],
   };
 }

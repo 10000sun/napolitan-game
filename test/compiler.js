@@ -77,5 +77,32 @@ check(lastReq.url === 'https://api.groq.com/openai/v1/chat/completions', 'BASE_U
 check(lastReq.headers.Authorization === 'Bearer gsk-test', 'Bearer 로 키를 보낸다');
 check(lastReq.body.messages[0].role === 'system', '시스템 프롬프트가 첫 메시지로 간다');
 
+// ── object.spawn ────────────────────────────────────────
+const { normalizeObject, foldEffects } = await import('../src/effects.js');
+
+let o = normalizeObject({ name: '  웃는   가면 ', tags: 'Mask, SMILING!, porcelain, mask', emoji: '🎭x', count: 9 });
+check(o.key === '웃는 가면', 'key 는 공백을 줄이고 소문자로');
+check(JSON.stringify(o.tags) === '["mask","smiling","porcelain"]', '태그 정규화·중복 제거');
+check(o.emoji === '🎭', '이모지는 첫 글자 하나');
+check(o.count === 5, 'count 는 5 로 잘린다');
+check(normalizeObject({ name: '웃는 가면', tags: 'a,b' }).key === normalizeObject({ name: '웃는  가면 ' }).key,
+  '공백만 다른 이름은 같은 key');
+check(normalizeObject({ name: 'Slime' }).key === normalizeObject({ name: 'slime' }).key, '대소문자만 다른 이름은 같은 key');
+check(normalizeObject({ name: '   ', tags: 'x' }) === null, '빈 이름은 버린다');
+check(normalizeObject({ name: 'x'.repeat(80) }).name.length === 40, '이름은 40자');
+check(normalizeObject({ name: 'a', tags: 'a,b,c,d,e,f,g,h' }).tags.length === 6, '태그는 6개까지');
+check(normalizeObject({ name: '가면', emoji: 'mask' }).emoji === '❔', '이모지가 아니면 ❔');
+check(normalizeObject({ name: '가면', count: 0 }).count === 1, 'count 최소 1');
+check(normalizeObject({ name: 'Dark Slime' }).tags[0] === 'dark slime', '태그가 없고 이름이 영어면 이름이 태그');
+check(normalizeObject({ name: '젤리' }).tags.length === 0, '태그가 없고 이름이 한국어면 빈 태그');
+
+let st = foldEffects([
+  [{ type: 'object.spawn', name: '가면', tags: 'mask', emoji: '🎭', count: 1 }],
+  [{ type: 'object.spawn', name: '가면', tags: 'mask,cracked', emoji: '🎭', count: 3 }],
+]);
+check(st.objects.length === 1 && st.objects[0].count === 3, '같은 key 는 덮어쓴다');
+st = foldEffects(Array.from({ length: 40 }, (_, i) => [{ type: 'object.spawn', name: `o${i}`, tags: 'x' }]));
+check(st.objects.length === 30, '오브젝트는 30종까지');
+
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);

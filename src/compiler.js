@@ -95,6 +95,7 @@ effects 는 verdict 가 applied 일 때만 채운다. 그 외에는 반드시 �
   { "type": "item.pistol", "value": true }
   { "type": "item.map_shows", "what": "traps" }
   { "type": "rule.exit_cost", "cost": "random_body_part" }
+  { "type": "object.spawn", "name": "벽에 걸린 웃는 가면", "tags": "mask, smiling, porcelain, cracked", "emoji": "🎭", "count": 1 }
   { "type": "flavor.text", "text": "벽 어딘가에 눈금이 새겨져 있다." }`;
 
 /** 앞사람들이 적은 글을 프롬프트용으로 압축한다. */
