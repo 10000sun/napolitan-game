@@ -117,3 +117,20 @@ export function decalPixels(key, source, emoji) {
   decalCache.set(key, out);
   return out;
 }
+
+const filteredCache = new Map();
+const LEVELS = [1, 0.8, 0.6, 0.42, 0.28, 0.16];
+
+/** 기괴 보정 + 밝기를 미리 입힌 캔버스. 밝기는 몇 단계로 나눠 캐시한다. */
+export function filteredCanvas(key, source, brightness = 1) {
+  const level = LEVELS.reduce((a, b) => (Math.abs(b - brightness) < Math.abs(a - brightness) ? b : a));
+  const k = `${key}|${level}`;
+  if (filteredCache.has(k)) return filteredCache.get(k);
+  const c = document.createElement('canvas');
+  c.width = source.width; c.height = source.height;
+  const g = c.getContext('2d');
+  if (FILTER_OK) g.filter = `grayscale(.7) sepia(.45) contrast(1.3) brightness(${level})`;
+  g.drawImage(source, 0, 0);
+  filteredCache.set(k, c);
+  return c;
+}

@@ -54,7 +54,8 @@ export function procedural(surface, color) {
         k *= 0.93 + 0.07 * Math.sin(u * Math.PI * 2 * 12);   // 세로 줄무늬 (12줄이라 이음새가 맞는다)
         if (v > 0.88) k *= 0.55;                             // 걸레받이
       } else if (surface === 'ceil') {
-        if ((u * 2) % 1 < 0.03 || (v * 2) % 1 < 0.03) k *= 0.45;   // 타일 틈
+        const gu = (u * 2) % 1, gv = (v * 2) % 1;
+        if (gu < 0.015 || gu > 0.985 || gv < 0.015 || gv > 0.985) k *= 0.45;   // 타일 틈 (가장자리에 걸쳐 이음새가 맞는다)
       } else if (surface === 'door') {
         if (Math.abs(u - 0.8) < 0.04 && Math.abs(v - 0.52) < 0.03) k = 1.6;   // 손잡이
       } else if (surface === 'light') {

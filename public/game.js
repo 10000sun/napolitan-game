@@ -7,12 +7,12 @@
 // 아무도 둘러보지 않는다.
 // ─────────────────────────────────────────────────────────────
 
-import { sprite, drawUncanny, stretchFor, emojiCanvas, decalPixels } from '/uncanny.js';
+import { sprite, drawUncanny, stretchFor, emojiCanvas, decalPixels, filteredCanvas } from '/uncanny.js';
 import { TEX, buildSurfaces } from '/textures.js';
 import { faceOf, raySegment, wallU } from '/geometry.js';
 import { nextStep, wanderStep } from '/paths.js';
 import { pickPart, effectsOf, severityOf } from '/body.js';
-import { COMBAT, EVENTS, resolve, pickSpecial, attackChance, dodgeChance, monsterSteps, turnCost } from '/encounters.js';
+import { COMBAT, EVENTS, resolve, available, pickSpecial, rollAttack, dodgeChance, monsterSteps, turnCost } from '/encounters.js';
 
 const TAU = Math.PI * 2;
 
@@ -346,7 +346,7 @@ export class Game {
     const co = this.corpseHere();
     if (co) out.push({ id: 'corpse', label: '시체를 챙긴다', kind: 'act', ...grab });
 
-    if (sight) {
+    if (sight && (!this.fx.has('blind') || sight.dist === 1)) {
       if (this.hasPistol && this.ammo > 0) {
         const noTrigger = this.fx.has('noTrigger');
         out.push({ id: 'shoot', label: `${this.rangedName || '총'}을(를) 쏜다`, hint: noTrigger ? '방아쇠를 당길 손가락이 없다' : `${this.ammo}번 남음`, disabled: noTrigger, kind: 'fight' });
@@ -355,17 +355,16 @@ export class Game {
         const label = this.meleeName && this.meleeName !== '칼' ? `${this.meleeName}(으)로 내려친다`
           : this.hasKnife ? '칼로 벤다' : '맨손으로 친다';
         out.push({ id: 'melee', label, kind: 'fight' });
-        const sideFree = [1, 3].some((t) => { const [dx, dy] = DIRS[(this.facing + t) % 4]; return !this.wall(this.cx + dx, this.cy + dy); });
-        out.push({ id: 'dodge', label: sideFree ? '몸을 피한다' : '뒤로 물러선다', kind: 'move' });
+        out.push({ id: 'dodge', label: this.sideCell() ? '몸을 피한다' : '뒤로 물러선다', kind: 'move' });
         const sp = this.specialFor(sight.m.id, 'monster');
-        if (sp) out.push({ id: `sp:${sight.m.id}`, label: sp.label, kind: 'move' });
+        if (sp && available([sp], this.encounterCtx()).length) out.push({ id: `sp:${sight.m.id}`, label: sp.label, kind: 'move' });
       }
     }
     const trap = !sight && this.trapAhead();
     if (trap) {
       out.push({ id: 'avoid', label: '조심스럽게 피해 지나간다', kind: 'move' });
       const sp = this.specialFor(trap.id, 'trap');
-      if (sp) out.push({ id: `sp:${trap.id}`, label: sp.label, kind: 'move' });
+      if (sp && available([sp], this.encounterCtx()).length) out.push({ id: `sp:${trap.id}`, label: sp.label, kind: 'move' });
     }
     if (this.carriedCorpse > 0) {
       out.push({ id: 'bait', label: '시체를 던진다', hint: `${this.carriedCorpse}구`, kind: 'act' });
@@ -487,8 +486,7 @@ export class Game {
     this.audio.shot();
     const name = this.rangedName || '총';
     if (!sight) { this.log(`${name}이(가) 허공을 가른다. 아무것도 맞지 않았다.`); return; }
-    const p = attackChance(this.rangedIsPistol ? 'pistol' : 'weapon', false, this.fx);
-    if (Math.random() < p) this.killMonster(sight.m);
+    if (rollAttack(this.rangedIsPistol ? 'pistol' : 'weapon', false, this.fx)) this.killMonster(sight.m);
     else this.log('빗나갔다.', 'bad');     // 떨어져 있으니 반격은 없다
   }
 
@@ -496,8 +494,7 @@ export class Game {
     const sight = this.monsterInSight(1);
     this.audio.blip(200, 0.07, 'square', 0.06);
     if (!sight) { this.log('허공을 갈랐다.'); return; }
-    const p = attackChance(this.hasKnife ? 'weapon' : 'bare', true, this.fx);
-    if (Math.random() < p) { this.killMonster(sight.m); return; }
+    if (rollAttack(this.hasKnife ? 'weapon' : 'bare', true, this.fx)) { this.killMonster(sight.m); return; }
     this.log('맞았지만 그것은 꿈쩍도 하지 않는다. 그것이 반격한다.', 'bad');
     this.damage(this.s.noPain ? 0 : COMBAT.counterDamage);
     if (!this.dead && Math.random() < COMBAT.counterPartChance) this.losePart('random', '그것이 물어뜯었다.');
@@ -512,7 +509,7 @@ export class Game {
   }
 
   encounterCtx() {
-    return { effects: this.fx, corpse: this.carriedCorpse > 0, weapon: this.hasKnife || this.hasPistol };
+    return { effects: this.fx, corpse: this.carriedCorpse > 0, weapon: this.hasKnife || (this.hasPistol && this.ammo > 0) };
   }
 
   specialFor(key, kind) {
@@ -537,6 +534,7 @@ export class Game {
       this.applyMove(this.sideCell() ? 'side' : 'back');
       sight.m.stun = 1;
       this.log('몸을 틀었다. 그것의 손이 어깨를 스친다.');
+      if (!this.dead) this.describe();
     } else {
       this.damage(this.s.noPain ? 0 : COMBAT.dodgeFailDamage, '피하지 못했다.');
       sight.m.stun = 1;   // 스친 것으로 그 턴은 끝난다
@@ -546,8 +544,11 @@ export class Game {
   avoidTrap() {
     const t = this.trapAhead();
     if (!t) return;
-    if (Math.random() < 0.75) { this.applyMove('over', t); this.log('틈을 피해 조심스럽게 지나갔다.'); }
-    else this.springTrap(t);
+    if (Math.random() < 0.75) {
+      const moved = this.applyMove('over', t);
+      this.log(moved ? '틈을 피해 조심스럽게 지나갔다.' : '틈 너머로 디딜 곳이 없다. 가장자리에 발을 걸친 채 멈춰 섰다.');
+      if (!this.dead) this.describe();
+    } else this.springTrap(t);
   }
 
   special(key) {
@@ -607,7 +608,8 @@ export class Game {
       const beyond = { x: trap.x + dx, y: trap.y + dy };
       c = (!this.wall(beyond.x, beyond.y) && !this.monsterAt(beyond.x, beyond.y)) ? beyond : null;
     }
-    if (c) { this.cx = c.x; this.cy = c.y; this.reveal(); }
+    if (c) { this.cx = c.x; this.cy = c.y; this.reveal(); this.checkTrap(); }
+    return !!c;
   }
 
   springTrap(t) {
@@ -795,7 +797,7 @@ export class Game {
       const [dx, dy] = DIRS[this.facing];
       while (n < 12 && !this.wall(this.cx + dx * (n + 1), this.cy + dy * (n + 1))) n++;
       bits.push(blind ? '앞이 잘 보이지 않는다.' : n >= 5 ? '긴 복도가 어둠 속으로 이어진다.' : `${DIR_NAME[this.facing]}쪽으로 길이 이어진다.`);
-      if (this.w.exit && this.cx + dx * n === this.w.exit.x && this.cy + dy * n === this.w.exit.y) {
+      if (!blind && this.w.exit && this.cx + dx * n === this.w.exit.x && this.cy + dy * n === this.w.exit.y) {
         bits.push('복도 끝에서 희미한 빛이 새어 나온다.');
       }
     }
@@ -812,6 +814,8 @@ export class Game {
     if (this.corpseHere()) bits.push('바닥에 시체가 널브러져 있다.');
     if (this.traps.some((t) => !t.sprung && this.s.mapTraps && t.x === a.x && t.y === a.y)) {
       bits.push('지도에 따르면 앞 칸에 함정이 있다.');
+    } else if (this.trapAhead()) {
+      bits.push('앞 바닥에 이상한 틈이 보인다.');
     }
     const withDesc = (line, o) => (o.desc ? `${line} ${o.desc}` : line);
     const floorObj = (x, y) => this.objects.find((o) => !o.taken && o.where !== 'wall' && o.x === x && o.y === y);
@@ -878,7 +882,7 @@ export class Game {
     this.wallDecals = new Map();
     for (const o of this.objects) {
       if (o.where !== 'wall') continue;
-      const k = `${o.x},${o.y},${o.face}`;
+      const k = (o.y * this.size + o.x) * 4 + o.face;
       if (!this.wallDecals.has(k)) this.wallDecals.set(k, []);
       this.wallDecals.get(k).push(pix(o.img, o.emoji));
     }
@@ -1018,7 +1022,7 @@ export class Game {
 
       // 이 벽면에 걸린 것
       let decal = null, du = 0;
-      const list = this.wallDecals.get(`${mapX},${mapY},${faceOf(side, stepX, stepY)}`);
+      const list = this.wallDecals.get((mapY * this.size + mapX) * 4 + faceOf(side, stepX, stepY));
       if (list && wallX >= 0.2 && wallX <= 0.8) {
         const sl = (wallX - 0.2) / 0.6 * list.length;
         const idx = Math.min(list.length - 1, Math.floor(sl));
@@ -1163,25 +1167,36 @@ export class Game {
     const hw = 0.32;
     const ax = o.x + 0.5 - Math.cos(th) * hw, ay = o.y + 0.5 - Math.sin(th) * hw;
     const bx = o.x + 0.5 + Math.cos(th) * hw, by = o.y + 0.5 + Math.sin(th) * hw;
-    const src = sprite(o.img) || emojiCanvas(o.emoji);
+
+    // 양 끝을 화면에 투영해 걸치는 열만 훑는다. 한쪽이 뒤에 있으면 전부.
+    const invDet = 1 / (planeX * dirY - dirX * planeY);
+    const screenX = (x, y) => {
+      const sx = x - this.px, sy = y - this.py;
+      const ty = invDet * (-planeY * sx + planeX * sy);
+      return ty > 0.01 ? (rw / 2) * (1 + invDet * (dirY * sx - dirX * sy) / ty) : null;
+    };
+    const sa = screenX(ax, ay), sb = screenX(bx, by);
+    if (sa === null && sb === null) { o.visible = false; return; }
+    const x0 = (sa === null || sb === null) ? 0 : Math.max(0, Math.floor(Math.min(sa, sb)) - 1);
+    const x1 = (sa === null || sb === null) ? rw - 1 : Math.min(rw - 1, Math.ceil(Math.max(sa, sb)) + 1);
+
+    const img = sprite(o.img);
+    const key = img ? o.img : `e:${o.emoji}`;
+    const source = img || emojiCanvas(o.emoji);
     const blind = this.fx.has('blind');
-    c.save();
     let drawn = false;
-    for (let x = 0; x < rw; x++) {
+    for (let x = x0; x <= x1; x++) {
       const camX = (2 * x) / rw - 1;
       const hit = raySegment(this.px, this.py, dirX + planeX * camX, dirY + planeY * camX, ax, ay, bx, by);
       if (!hit || hit.t >= this.zBuf[x] || hit.t < 0.2 || (blind && hit.t > 1.5)) continue;
-      if (!drawn) {
-        const fog = Math.max(0.16, Math.min(1, 5.2 / hit.t));
-        c.filter = `grayscale(.7) sepia(.45) contrast(1.3) brightness(${fog.toFixed(2)})`;
-        drawn = true;
-      }
+      drawn = true;
+      // 멀수록 어둡다. 밝기 단계마다 보정 필터를 미리 입힌 캔버스를 쓴다 (열마다 필터를 걸면 느리다).
+      const src = filteredCanvas(key, source, Math.max(0.16, Math.min(1, 5.2 / hit.t)));
       const unit = rh / hit.t;
       const bottom = rh / 2 + unit / 2;
       const top = bottom - unit * 0.7 * o.stretch;
       c.drawImage(src, Math.min(src.width - 1, (hit.s * src.width) | 0), 0, 1, src.height, x, top, 1, bottom - top);
     }
-    c.restore();
     o.visible = drawn;
   }
 

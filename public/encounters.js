@@ -98,3 +98,6 @@ export const monsterSteps = (speed = 1) => Math.max(1, Math.round(2 * speed));
 
 /** 이번 선택이 쓰는 턴 수. 다리가 없으면 칸을 옮기는 모든 행동이 세 턴이다. */
 export const turnCost = ({ moved, slow, pending = 1 }) => Math.max(pending || 1, moved && slow ? 3 : 1);
+
+/** 공격이 먹혔는가. 확률은 attackChance, 굴림은 rng (테스트에서 주입). */
+export const rollAttack = (weapon, melee, effects, rng = Math.random) => rng() < attackChance(weapon, melee, effects);
