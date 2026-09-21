@@ -10,6 +10,7 @@
 import { sprite, drawUncanny, stretchFor } from '/uncanny.js';
 import { nextStep, wanderStep } from '/paths.js';
 import { pickPart, effectsOf, severityOf } from '/body.js';
+import { COMBAT, EVENTS, resolve, pickSpecial, attackChance, dodgeChance, monsterSteps } from '/encounters.js';
 
 const TAU = Math.PI * 2;
 
@@ -116,7 +117,7 @@ export class Game {
     if (effectsOf(this.lostBefore).has('deaf')) this.audio.muted = true;
 
     this.monsters = world.monsters.map((m) => ({
-      id: m.id, x: Math.floor(m.x), y: Math.floor(m.y), hp: 3, alive: true,
+      id: m.id, x: Math.floor(m.x), y: Math.floor(m.y), alive: true, stun: 0,
     }));
     this.corpses = world.corpses.map((c, i) => ({ id: `c${i}`, x: c.x, y: c.y, taken: false }));
     this.traps = world.traps.map((t, i) => ({ id: `t${i}`, x: t.x, y: t.y, sprung: false }));
@@ -124,6 +125,10 @@ export class Game {
       .map((it) => ({ ...it, x: Math.floor(it.x), y: Math.floor(it.y), taken: false }));
     this.baits = [];
     this.pendingTurns = 0;
+    this.event = null;              // 진행 중인 후속 이벤트 { id, monster }
+    this.specials = new Map();      // 조우 대상 id → 뽑힌 특수 행동 (한 번만 뽑는다)
+    this.noticed = new Map();       // 함정 id → 알아챘는지 (한 번만 굴린다)
+    this.rangedIsPistol = false;
 
     // 방명록 물체. 규칙에는 영향 없이 서 있기만 한다.
     this.objects = (world.objects || []).map((o) => ({
@@ -285,6 +290,15 @@ export class Game {
   buildChoices() {
     if (this.dead || this.won) return [];
     const out = [];
+    if (this.event) {
+      const ev = EVENTS[this.event.id];
+      const ctx = this.encounterCtx();
+      ev.choices.forEach((c, i) => {
+        const ok = (c.needs || []).every((n) => (n.startsWith('!') ? !ctx.effects.has(n.slice(1)) : !!ctx[n]));
+        if (ok) out.push({ id: `ev:${i}`, label: c.label, kind: 'fight' });
+      });
+      return out;
+    }
     const a = this.ahead();
     const blocked = this.wall(a.x, a.y);
     const sight = this.monsterInSight();
@@ -314,7 +328,17 @@ export class Game {
         const label = this.meleeName && this.meleeName !== '칼' ? `${this.meleeName}(으)로 내려친다`
           : this.hasKnife ? '칼로 벤다' : '맨손으로 친다';
         out.push({ id: 'melee', label, kind: 'fight' });
+        const sideFree = [1, 3].some((t) => { const [dx, dy] = DIRS[(this.facing + t) % 4]; return !this.wall(this.cx + dx, this.cy + dy); });
+        out.push({ id: 'dodge', label: sideFree ? '몸을 피한다' : '뒤로 물러선다', kind: 'move' });
+        const sp = this.specialFor(sight.m.id, 'monster');
+        if (sp) out.push({ id: `sp:${sight.m.id}`, label: sp.label, kind: 'move' });
       }
+    }
+    const trap = !sight && this.trapAhead();
+    if (trap) {
+      out.push({ id: 'avoid', label: '조심스럽게 피해 지나간다', kind: 'move' });
+      const sp = this.specialFor(trap.id, 'trap');
+      if (sp) out.push({ id: `sp:${trap.id}`, label: sp.label, kind: 'move' });
     }
     if (this.carriedCorpse > 0) {
       out.push({ id: 'bait', label: '시체를 던진다', hint: `${this.carriedCorpse}구`, kind: 'act' });
@@ -344,12 +368,17 @@ export class Game {
       case 'forward': this.moveForward(); break;
       case 'take': this.takeItem(); break;
       case 'tool': this.takeTool(); break;
+      case 'dodge': this.dodge(); break;
+      case 'avoid': this.avoidTrap(); break;
       case 'corpse': this.takeCorpse(); break;
       case 'shoot': this.shoot(); break;
       case 'melee': this.melee(); break;
       case 'bait': this.throwBait(); break;
       case 'exit': this.tryExit(); break;
-      default: return;
+      default:
+        if (id.startsWith('ev:')) { this.eventChoice(Number(id.slice(3))); break; }
+        if (id.startsWith('sp:')) { this.special(id.slice(3)); break; }
+        return;
     }
 
     if (this.won || this.dead) { this.pushState(); return; }
@@ -382,6 +411,7 @@ export class Game {
     if (it.kind === 'pistol') {
       this.hasPistol = true;
       this.rangedName = '권총';
+      this.rangedIsPistol = true;
       this.ammo += this.s.ammo || 12;
       this.log(`권총을 주웠다. 탄약 ${this.ammo}발.`);
     } else if (it.kind === 'knife') {
@@ -402,6 +432,7 @@ export class Game {
     if (o.use === 'ranged') {
       this.hasPistol = true;
       this.rangedName = o.name;
+      this.rangedIsPistol = false;
       this.ammo += 12;
       this.log(`${o.name}을(를) 주웠다. 쏠 것이 ${this.ammo}번 남았다.`);
     } else {
@@ -421,30 +452,148 @@ export class Game {
 
   shoot() {
     const sight = this.monsterInSight();
-    if (this.ammo <= 0) { this.log('탄창이 비었다.', 'bad'); return; }
+    if (this.ammo <= 0) { this.log('남은 것이 없다.', 'bad'); return; }
     this.ammo--;
     this.audio.shot();
-    if (!sight) { this.log('총성이 복도를 타고 멀어진다. 아무것도 맞지 않았다.'); return; }
-    this.hurtMonster(sight.m, 3);
+    const name = this.rangedName || '총';
+    if (!sight) { this.log(`${name}이(가) 허공을 가른다. 아무것도 맞지 않았다.`); return; }
+    const p = attackChance(this.rangedIsPistol ? 'pistol' : 'weapon', false, this.fx);
+    if (Math.random() < p) this.killMonster(sight.m);
+    else this.log('빗나갔다.', 'bad');     // 떨어져 있으니 반격은 없다
   }
 
   melee() {
     const sight = this.monsterInSight(1);
     this.audio.blip(200, 0.07, 'square', 0.06);
     if (!sight) { this.log('허공을 갈랐다.'); return; }
-    this.hurtMonster(sight.m, this.hasKnife ? 2 : 1);
+    const p = attackChance(this.hasKnife ? 'weapon' : 'bare', true, this.fx);
+    if (Math.random() < p) { this.killMonster(sight.m); return; }
+    this.log('맞았지만 그것은 꿈쩍도 하지 않는다. 그것이 반격한다.', 'bad');
+    this.damage(this.s.noPain ? 0 : COMBAT.counterDamage);
+    if (!this.dead && Math.random() < COMBAT.counterPartChance) this.losePart('random', '그것이 물어뜯었다.');
+    sight.m.stun = 0;
   }
 
-  hurtMonster(m, dmg) {
-    m.hp -= dmg;
-    if (m.hp <= 0) {
-      m.alive = false;
-      this.audio.blip(60, 0.4, 'sawtooth', 0.1);
-      this.log('그것이 무너져 내렸다.');
-      if (this.monsters.every((x) => !x.alive)) this.log('더 이상 아무 소리도 들리지 않는다.', 'sys');
+  killMonster(m) {
+    m.alive = false;
+    this.audio.blip(60, 0.4, 'sawtooth', 0.1);
+    this.log('그것이 무너져 내렸다.');
+    if (this.monsters.every((x) => !x.alive)) this.log('더 이상 아무 소리도 들리지 않는다.', 'sys');
+  }
+
+  encounterCtx() {
+    return { effects: this.fx, corpse: this.carriedCorpse > 0, weapon: this.hasKnife || this.hasPistol };
+  }
+
+  specialFor(key, kind) {
+    if (!this.specials.has(key)) this.specials.set(key, pickSpecial(kind, this.encounterCtx()));
+    return this.specials.get(key);
+  }
+
+  /** 앞 칸 함정을 알아챘는가. 지도에 표시되면 항상, 아니면 5%. 함정마다 한 번만 굴린다. */
+  trapAhead() {
+    const a = this.ahead();
+    const t = this.traps.find((t) => !t.sprung && t.x === a.x && t.y === a.y);
+    if (!t) return null;
+    if (!this.noticed.has(t.id)) this.noticed.set(t.id, this.s.mapTraps || Math.random() < 0.05);
+    return this.noticed.get(t.id) ? t : null;
+  }
+
+  /** 몸을 피한다. 성공하면 옆(없으면 뒤) 빈 칸으로, 그 턴에 괴물은 물지 못한다. */
+  dodge() {
+    const sight = this.monsterInSight(1);
+    if (!sight) return;
+    if (Math.random() < dodgeChance(this.fx)) {
+      this.applyMove(this.sideCell() ? 'side' : 'back');
+      sight.m.stun = 1;
+      this.log('몸을 틀었다. 그것의 손이 어깨를 스친다.');
     } else {
-      this.log('맞았다. 아직 살아 있다.', 'bad');
+      this.damage(this.s.noPain ? 0 : COMBAT.dodgeFailDamage, '피하지 못했다.');
     }
+  }
+
+  avoidTrap() {
+    const t = this.trapAhead();
+    if (!t) return;
+    if (Math.random() < 0.75) { this.applyMove('over', t); this.log('틈을 피해 조심스럽게 지나갔다.'); }
+    else this.springTrap(t);
+  }
+
+  special(key) {
+    const sp = this.specials.get(key);
+    if (!sp) return;
+    const monster = this.monsters.find((m) => m.id === key);
+    const trap = this.traps.find((t) => t.id === key);
+    this.specials.delete(key);          // 한 번 쓴 특수 행동은 다시 뜨지 않는다 (다음 조우에 새로 뽑는다)
+    this.applyOutcome(resolve(sp.outcomes), { monster, trap });
+  }
+
+  eventChoice(i) {
+    const ev = EVENTS[this.event.id];
+    const choice = ev.choices[i];
+    const ctx = { monster: this.event.monster };
+    this.event = null;
+    if (choice) this.applyOutcome(resolve(choice.outcomes), ctx);
+  }
+
+  applyOutcome(r, { monster, trap } = {}) {
+    if (r.text) this.log(r.text, r.damage || r.losePart || r.trap === 'spring' ? 'bad' : '');
+    if (r.useCorpse && this.carriedCorpse > 0) this.carriedCorpse--;
+    if (r.move) this.applyMove(r.move, trap);
+    if (r.damage) this.damage(this.s.noPain ? 0 : r.damage);
+    if (this.dead) return;
+    if (r.losePart) this.losePart(r.losePart);
+    if (this.dead) return;
+    if (monster && r.monster === 'stun') monster.stun = 2;
+    if (monster && r.monster === 'enrage') monster.stun = -1;   // 다음 턴에 한 칸 더
+    if (monster && r.monster === 'flee') this.fleeMonster(monster);
+    if (trap && r.trap === 'disarm') trap.sprung = true;
+    if (trap && r.trap === 'spring') this.springTrap(trap);
+    if (r.turns) this.pendingTurns = r.turns;
+    if (r.next) { this.event = { id: r.next, monster }; this.log(EVENTS[r.next].text, 'bad'); }
+    else if (!this.dead) this.describe();
+  }
+
+  sideCell() {
+    for (const t of [1, 3]) {
+      const [dx, dy] = DIRS[(this.facing + t) % 4];
+      const x = this.cx + dx, y = this.cy + dy;
+      if (!this.wall(x, y) && !this.monsterAt(x, y)) return { x, y };
+    }
+    return null;
+  }
+
+  applyMove(kind, trap) {
+    let c = null;
+    if (kind === 'side') c = this.sideCell();
+    if (kind === 'back' || (kind === 'side' && !c)) {
+      const [dx, dy] = DIRS[(this.facing + 2) % 4];
+      const b = { x: this.cx + dx, y: this.cy + dy };
+      if (!this.wall(b.x, b.y) && !this.monsterAt(b.x, b.y)) c = b;
+    }
+    if (kind === 'over' && trap) {
+      const [dx, dy] = DIRS[this.facing];
+      const beyond = { x: trap.x + dx, y: trap.y + dy };
+      c = (!this.wall(beyond.x, beyond.y) && !this.monsterAt(beyond.x, beyond.y)) ? beyond : null;
+    }
+    if (c) { this.cx = c.x; this.cy = c.y; this.reveal(); }
+  }
+
+  springTrap(t) {
+    t.sprung = true;
+    this.losePart('random', '함정이다. 바닥에서 솟은 것이 몸을 꿰뚫었다.');
+  }
+
+  /** 3칸 멀어지는 쪽으로 물러난다. */
+  fleeMonster(m) {
+    for (let i = 0; i < 3; i++) {
+      const opts = DIRS.map(([dx, dy]) => ({ x: m.x + dx, y: m.y + dy }))
+        .filter((c) => !this.wall(c.x, c.y) && !this.monsterAt(c.x, c.y) && !(c.x === this.cx && c.y === this.cy))
+        .sort((a, b) => (Math.abs(b.x - this.cx) + Math.abs(b.y - this.cy)) - (Math.abs(a.x - this.cx) + Math.abs(a.y - this.cy)));
+      if (!opts.length) break;
+      m.x = opts[0].x; m.y = opts[0].y;
+    }
+    m.stun = 1;
   }
 
   throwBait() {
@@ -459,8 +608,7 @@ export class Game {
   checkTrap() {
     const t = this.traps.find((t) => !t.sprung && t.x === this.cx && t.y === this.cy);
     if (!t) return;
-    t.sprung = true;
-    this.losePart('random', '함정이다. 바닥에서 솟은 것이 몸을 꿰뚫었다.');
+    this.springTrap(t);
   }
 
   tryExit() {
@@ -548,14 +696,17 @@ export class Game {
   }
 
   moveMonsters() {
-    const steps = (this.s.monsterSpeed || 1) >= 2 ? 2 : 1;
-    for (let s = 0; s < steps; s++) {
+    const base = monsterSteps(this.s.monsterSpeed || 1);
+    // 이번 턴에 괴물마다 움직일 칸 수. 기절이면 0, 격분이면 한 칸 더.
+    for (const m of this.monsters) m.moves = m.stun > 0 ? 0 : base + (m.stun < 0 ? 1 : 0);
+    for (let s = 0; s <= base; s++) {
       for (const m of this.monsters) {
-        if (!m.alive || this.dead) continue;
+        if (!m.alive || this.dead || m.moves <= 0) continue;
+        m.moves--;
 
-        // 붙어 있으면 문다
-        if (Math.abs(m.x - this.cx) + Math.abs(m.y - this.cy) === 0) {
-          this.damage(this.s.noPain ? 0 : 22, '그것이 당신을 물어뜯었다.');
+        // 바로 옆이면 문다. 같은 칸으로 들어오지 않는다 — 마주 서야 피하거나 맞설 수 있다.
+        if (Math.abs(m.x - this.cx) + Math.abs(m.y - this.cy) <= 1) {
+          this.bite(m);
           continue;
         }
 
@@ -568,20 +719,25 @@ export class Game {
 
         const opts = DIRS
           .map(([dx, dy]) => ({ x: m.x + dx, y: m.y + dy }))
-          .filter((c) => !this.wall(c.x, c.y) && !this.monsterAt(c.x, c.y))
+          .filter((c) => !this.wall(c.x, c.y) && !this.monsterAt(c.x, c.y) && !(c.x === this.cx && c.y === this.cy))
           .sort((a, b) =>
             (Math.abs(tx - a.x) + Math.abs(ty - a.y)) - (Math.abs(tx - b.x) + Math.abs(ty - b.y)));
         if (opts.length && (Math.abs(tx - opts[0].x) + Math.abs(ty - opts[0].y)) < d) {
           m.x = opts[0].x; m.y = opts[0].y;
         }
-        if (m.x === this.cx && m.y === this.cy) {
-          this.damage(this.s.noPain ? 0 : 22, '그것이 당신을 덮쳤다.');
-        }
       }
     }
+    for (const m of this.monsters) { if (m.stun > 0) m.stun--; else if (m.stun < 0) m.stun = 0; }
     const near = this.monsters.filter((m) => m.alive)
       .some((m) => Math.abs(m.x - this.cx) + Math.abs(m.y - this.cy) <= 3);
     if (near && !this.fx.has('deaf')) { this.audio.growl(); this.log('숨소리가 가깝다.', 'bad'); }
+  }
+
+  /** 물었으면 그 턴은 거기서 멈춘다. 가끔은 살점을 뜯어 간다. */
+  bite(m) {
+    m.moves = 0;
+    this.damage(this.s.noPain ? 0 : 22, '그것이 당신을 물어뜯었다.');
+    if (!this.dead && Math.random() < COMBAT.counterPartChance) this.losePart('random', '그것이 살점을 뜯어 갔다.');
   }
 
   los(x0, y0, x1, y1) {
