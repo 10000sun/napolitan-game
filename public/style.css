@@ -132,7 +132,7 @@ html, body {
 
 /* ── 게임 ─────────────────────────────────────────── */
 #game { background: #000; }
-#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
 #minimap {
   position: absolute; top: 14px; right: 14px;

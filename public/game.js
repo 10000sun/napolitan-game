@@ -7,12 +7,19 @@
 // 아무도 둘러보지 않는다.
 // ─────────────────────────────────────────────────────────────
 
-import { sprite, drawUncanny, stretchFor } from '/uncanny.js';
+import { sprite, drawUncanny, stretchFor, emojiCanvas, decalPixels } from '/uncanny.js';
+import { TEX, buildSurfaces } from '/textures.js';
+import { faceOf, raySegment } from '/geometry.js';
 import { nextStep, wanderStep } from '/paths.js';
 import { pickPart, effectsOf, severityOf } from '/body.js';
 import { COMBAT, EVENTS, resolve, pickSpecial, attackChance, dodgeChance, monsterSteps, turnCost } from '/encounters.js';
 
 const TAU = Math.PI * 2;
+
+const FOG = [58, 52, 34];                  // 누런 안개
+const SCALES = [1, 0.75, 0.55];            // 느리면 한 단계씩 내린다
+const ITEM_EMOJI = { pistol: '🔫', knife: '🔪', map: '🗺️' };
+const isLight = (x, y) => ((x * 7 + y * 13) % 5 + 5) % 5 === 0;   // 형광등 칸
 
 const COLORS = {
   wallLight: [96, 87, 76],
@@ -149,6 +156,16 @@ export class Game {
     window.addEventListener('resize', this._onResize);
     window.addEventListener('keydown', this._onKey);
 
+    this.tex = null;                        // 텍스처가 오기 전에는 예전 단색으로 그린다
+    buildSurfaces(world.surfaces).then((t) => { this.tex = t; }).catch(() => {});
+    this.scaleIdx = 0;
+    this.frameMs = [];
+    this.flickerUntil = 0;
+    this.decalFrame = 0;
+    this.floorDecal = new Int16Array(this.size * this.size).fill(-1);
+    this.floorDecals = [];
+    this.wallDecals = new Map();
+
     this._resize();
     // 지도가 없으면 미니맵도 없다.
     this.mm.style.display = this.s.map ? '' : 'none';
@@ -165,6 +182,13 @@ export class Game {
       const dt = Math.min(0.05, (t - this.lastT) / 1000);
       this.lastT = t;
       this.stepCamera(dt);
+      // 느리면 해상도를 한 단계 내린다. 올리지는 않는다.
+      this.frameMs.push(dt * 1000);
+      if (this.frameMs.length >= 30) {
+        const avg = this.frameMs.reduce((a, b) => a + b, 0) / this.frameMs.length;
+        this.frameMs = [];
+        if (avg > 28 && this.scaleIdx < SCALES.length - 1) { this.scaleIdx++; this._resize(); }
+      }
       this.render();
       if (this.s.map) this.drawMinimap();
     };
@@ -187,7 +211,7 @@ export class Game {
   }
 
   _resize() {
-    const scale = 0.55;
+    const scale = SCALES[this.scaleIdx || 0];
     this.rw = Math.max(200, Math.floor(this.canvas.clientWidth * scale) || 400);
     this.rh = Math.max(120, Math.floor(this.canvas.clientHeight * scale) || 260);
     this.canvas.width = this.rw;
@@ -425,6 +449,7 @@ export class Game {
       this.mapKnown = true;
       this.log('지도를 펼쳤다. 미로가 전부 드러났다.');
     }
+    this.decalFrame = 0;
   }
 
   takeTool() {
@@ -443,6 +468,7 @@ export class Game {
       this.meleeName = o.name;
       this.log(`${o.name}을(를) 주웠다. 손에 쥐어 본다.`);
     }
+    this.decalFrame = 0;
   }
 
   takeCorpse() {
@@ -842,22 +868,100 @@ export class Game {
   }
 
 /* ── 렌더 ─────────────────────────────────────── */
+  /** 벽·바닥에 붙은 그림 목록을 다시 만든다. 이미지가 늦게 도착해도 따라잡도록 가끔 부른다. */
+  rebuildDecals() {
+    const pix = (img, emoji) => {
+      const cv = sprite(img);
+      return decalPixels(cv ? `${img}` : `e:${emoji}`, cv, emoji);
+    };
+    this.wallDecals = new Map();
+    for (const o of this.objects) {
+      if (o.where !== 'wall') continue;
+      const k = `${o.x},${o.y},${o.face}`;
+      if (!this.wallDecals.has(k)) this.wallDecals.set(k, []);
+      this.wallDecals.get(k).push(pix(o.img, o.emoji));
+    }
+    this.floorDecal.fill(-1);
+    this.floorDecals = [];
+    const lay = (x, y, p) => {
+      if (x < 0 || y < 0 || x >= this.size || y >= this.size) return;
+      this.floorDecal[y * this.size + x] = this.floorDecals.push(p) - 1;
+    };
+    for (const o of this.objects) if (!o.taken && o.where !== 'wall' && o.pose === 'lie') lay(o.x, o.y, pix(o.img, o.emoji));
+    for (const it of this.items) if (!it.taken) lay(it.x, it.y, pix(it.img, ITEM_EMOJI[it.kind]));
+  }
+
+  /** 형광등 깜빡임. 가끔 0.1~0.3초 어두워진다. */
+  flicker() {
+    const now = performance.now();
+    if (now > this.flickerUntil && Math.random() < 0.004) this.flickerUntil = now + 100 + Math.random() * 200;
+    return now < this.flickerUntil ? 0.55 : 1;
+  }
+
   render() {
     const { rw, rh, img } = this;
     const data = img.data;
     const dirX = Math.cos(this.angle), dirY = Math.sin(this.angle);
     const planeX = -dirY * this.fov, planeY = dirX * this.fov;
+    const T = this.tex;
+    const blind = this.fx.has('blind');
+    const half = rh / 2;
+    const fogDist = blind ? 1.2 : 6.5;
+    const dark = blind ? 0.35 : 1;
+    const light = this.flicker() * dark;
+    if (T && this.decalFrame-- <= 0) { this.rebuildDecals(); this.decalFrame = 30; }
 
-    // 천장 / 바닥
-    for (let y = 0; y < rh; y++) {
-      const top = y < rh / 2;
-      const base = top ? COLORS.ceil : COLORS.floor;
-      // 거리감을 주는 세로 그라데이션
-      const k = top ? y / (rh / 2) : 1 - (y - rh / 2) / (rh / 2);
-      const f = (0.35 + k * 0.65) * (this.fx.has('blind') ? 0.35 : 1);
-      for (let x = 0; x < rw; x++) {
-        const i = (y * rw + x) * 4;
-        data[i] = base[0] * f; data[i + 1] = base[1] * f; data[i + 2] = base[2] * f; data[i + 3] = 255;
+    // 안개와 섞어 찍는다.
+    const put = (i, r, g, b, fog, k) => {
+      data[i] = r * k * (1 - fog) + FOG[0] * dark * fog;
+      data[i + 1] = g * k * (1 - fog) + FOG[1] * dark * fog;
+      data[i + 2] = b * k * (1 - fog) + FOG[2] * dark * fog;
+      data[i + 3] = 255;
+    };
+
+    if (!T) {
+      // 텍스처가 오기 전: 예전 단색
+      for (let y = 0; y < rh; y++) {
+        const top = y < half;
+        const base = top ? COLORS.ceil : COLORS.floor;
+        const k = top ? y / half : 1 - (y - half) / half;
+        const f = (0.35 + k * 0.65) * dark;
+        for (let x = 0; x < rw; x++) {
+          const i = (y * rw + x) * 4;
+          data[i] = base[0] * f; data[i + 1] = base[1] * f; data[i + 2] = base[2] * f; data[i + 3] = 255;
+        }
+      }
+    } else {
+      // 바닥·천장 (floor casting). 천장 줄은 바닥 줄과 대칭이다.
+      const rdx0 = dirX - planeX, rdy0 = dirY - planeY, rdx1 = dirX + planeX, rdy1 = dirY + planeY;
+      const size = this.size;
+      for (let y = Math.floor(half); y < rh; y++) {
+        const p = y - half + 0.5;
+        const rowDist = half / p;
+        const sx = rowDist * (rdx1 - rdx0) / rw, sy = rowDist * (rdy1 - rdy0) / rw;
+        let fx = this.px + rowDist * rdx0, fy = this.py + rowDist * rdy0;
+        const fog = Math.min(1, rowDist / fogDist);
+        const yc = rh - 1 - y;
+        for (let x = 0; x < rw; x++) {
+          const cx = Math.floor(fx), cy = Math.floor(fy);
+          const lu = fx - cx, lv = fy - cy;
+          const ti = ((((lv * TEX) | 0) & (TEX - 1)) * TEX + (((lu * TEX) | 0) & (TEX - 1))) * 4;
+          let r = T.floor[ti], g = T.floor[ti + 1], b = T.floor[ti + 2];
+          const di = (cx >= 0 && cy >= 0 && cx < size && cy < size) ? this.floorDecal[cy * size + cx] : -1;
+          if (di >= 0 && lu > 0.15 && lu < 0.85 && lv > 0.15 && lv < 0.85) {
+            const dp = this.floorDecals[di];
+            const j = ((((lv - 0.15) / 0.7 * dp.size) | 0) * dp.size + (((lu - 0.15) / 0.7 * dp.size) | 0)) * 4;
+            const a = dp.data[j + 3] / 255;
+            r = r * (1 - a) + dp.data[j] * a; g = g * (1 - a) + dp.data[j + 1] * a; b = b * (1 - a) + dp.data[j + 2] * a;
+          }
+          put((y * rw + x) * 4, r, g, b, fog, light);
+          if (yc >= 0) {
+            const lit = isLight(cx, cy);
+            const src = lit ? T.light : T.ceil;
+            put((yc * rw + x) * 4, src[ti], src[ti + 1], src[ti + 2], lit ? fog * 0.4 : fog, light);   // 형광등은 안개를 덜 탄다
+          }
+          fx += sx; fy += sy;
+        }
       }
     }
 
@@ -890,17 +994,47 @@ export class Game {
       const d = Math.max(0.05, dist);
       this.zBuf[x] = d;
 
-      const lineH = Math.floor(rh / d);
-      const y0 = Math.max(0, Math.floor(-lineH / 2 + rh / 2));
-      const y1 = Math.min(rh - 1, Math.floor(lineH / 2 + rh / 2));
+      const lineH = rh / d;
+      const yTop = half - lineH / 2;
+      const y0 = Math.max(0, Math.floor(yTop));
+      const y1 = Math.min(rh - 1, Math.floor(half + lineH / 2));
 
-      const base = side === 1 ? COLORS.wallDark : COLORS.wallLight;
-      const fog = Math.max(0.14, Math.min(1, (this.fx.has('blind') ? 1.2 : 5.0) / d));
-      const r = base[0] * fog, g = base[1] * fog, b = base[2] * fog;
+      if (!T) {
+        const base = side === 1 ? COLORS.wallDark : COLORS.wallLight;
+        const fog = Math.max(0.14, Math.min(1, (blind ? 1.2 : 5.0) / d));
+        for (let y = y0; y <= y1; y++) {
+          const i = (y * rw + x) * 4;
+          data[i] = base[0] * fog; data[i + 1] = base[1] * fog; data[i + 2] = base[2] * fog; data[i + 3] = 255;
+        }
+        continue;
+      }
+
+      let wallX = side === 0 ? this.py + d * rdy : this.px + d * rdx;
+      wallX -= Math.floor(wallX);
+      if ((side === 0 && rdx > 0) || (side === 1 && rdy < 0)) wallX = 1 - wallX;   // 어느 쪽에서 봐도 같은 방향
+      const tu = Math.min(TEX - 1, (wallX * TEX) | 0);
+      const fog = Math.min(1, d / fogDist);
+      const k = light * (side ? 0.8 : 1);
+
+      // 이 벽면에 걸린 것
+      let decal = null, du = 0;
+      const list = this.wallDecals.get(`${mapX},${mapY},${faceOf(side, stepX, stepY)}`);
+      if (list && wallX >= 0.2 && wallX <= 0.8) {
+        const sl = (wallX - 0.2) / 0.6 * list.length;
+        const idx = Math.min(list.length - 1, Math.floor(sl));
+        decal = list[idx]; du = Math.min(0.999, sl - idx);
+      }
 
       for (let y = y0; y <= y1; y++) {
-        const i = (y * rw + x) * 4;
-        data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 255;
+        const v = (y - yTop) / lineH;
+        const ti = ((((v * TEX) | 0) & (TEX - 1)) * TEX + tu) * 4;
+        let r = T.wall[ti], g = T.wall[ti + 1], b = T.wall[ti + 2];
+        if (decal && v >= 0.22 && v < 0.72) {
+          const j = ((((v - 0.22) / 0.5 * decal.size) | 0) * decal.size + ((du * decal.size) | 0)) * 4;
+          const a = decal.data[j + 3] / 255;
+          r = r * (1 - a) + decal.data[j] * a; g = g * (1 - a) + decal.data[j + 1] * a; b = b * (1 - a) + decal.data[j + 2] * a;
+        }
+        put((y * rw + x) * 4, r, g, b, fog, k);
       }
     }
 
