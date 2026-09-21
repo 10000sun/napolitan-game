@@ -27,41 +27,16 @@ function toast(msg, ms = 2600) {
 
 /* ── 현관 ─────────────────────────────────────────── */
 async function loadLobby() {
-  const { user, devMode } = await api('/api/me');
+  const { user } = await api('/api/me');
   me = user;
 
-  const box = $('auth-box');
-  if (me) {
-    box.innerHTML = `<span>${escapeHtml(me.username)} 님으로 들어와 있습니다.</span>`;
-  } else {
-    box.innerHTML = devMode
-      ? '<span>개발 모드입니다.</span>'
-      : '<a href="/auth/login">디스코드로 로그인</a> 해야 문이 열립니다.';
-  }
+  // 이 방은 자기에 대해 아무것도 알려주지 않는다.
+  // 들어오지 못한 사람에게만 들어올 방법을 알려준다.
+  $('auth-box').innerHTML = me ? '' : '<a href="/auth/login">디스코드로 로그인</a>';
   $('btn-enter').disabled = !me;
-
-  const book = await api('/api/guestbook');
-  renderRoomStatus(book);
-}
-
-function renderRoomStatus(book) {
-  const { stats, room } = book;
-  const rate = stats.attempts ? Math.round((stats.clears / stats.attempts) * 100) : 0;
-  $('room-status').innerHTML = `
-    공책에 적힌 글 <b>${stats.entries}</b>개 · 그중 이 방이 받아들인 것 <b>${stats.applied}</b>개<br>
-    들어간 사람 <b>${stats.attempts}</b>명 · 나온 사람 <b>${stats.clears}</b>명 · 나오지 못한 사람 <b>${stats.deaths}</b>명<br>
-    생환율 <b>${rate}%</b>`;
 }
 
 /* ── 방명록 ───────────────────────────────────────── */
-const VERDICT_LABEL = {
-  applied: '반영됨',
-  duplicate: '겹침',
-  contradiction: '밀려남',
-  swallowed: '삼켜짐',
-  flavor_only: '적히기만 함',
-};
-
 async function openBook() {
   const book = await api('/api/guestbook');
   const list = $('entries');
@@ -74,13 +49,6 @@ async function openBook() {
     list.innerHTML = book.entries.map(entryHtml).join('');
   }
 
-  const s = book.stats;
-  $('book-stats').innerHTML = `
-    <span>총 ${s.entries}줄</span>
-    <span>반영 ${s.applied}줄</span>
-    <span>입장 ${s.attempts}회</span>
-    <span>생환 ${s.clears}회</span>`;
-
   // 기입권은 서버가 판단한다 — 클리어했고 아직 안 쓴 런이 있을 때만.
   const canWrite = book.pendingWrite !== null && book.pendingWrite !== undefined;
   $('write-box').classList.toggle('hidden', !canWrite);
@@ -88,23 +56,16 @@ async function openBook() {
   $('write-text').value = '';
   $('write-count').textContent = '0 / 500';
   $('btn-submit').disabled = false;
+  $('btn-submit').textContent = '적는다';
 
   show('guestbook');
   list.scrollTop = list.scrollHeight;
 }
 
 function entryHtml(e) {
-  const when = new Date(e.created_at).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
-  const tag = VERDICT_LABEL[e.verdict] || '';
-  return `<div class="entry ${e.verdict}">
-    <div class="entry-meta">
-      <span>${escapeHtml(e.username)}</span>
-      <span>${when}</span>
-      <span class="tag ${e.verdict}">${tag}</span>
-    </div>
-    <div class="entry-text">${escapeHtml(e.raw_text)}</div>
-    ${e.reason ? `<div class="entry-reason">${escapeHtml(e.reason)}</div>` : ''}
-  </div>`;
+  // 누가 언제 썼는지도, 이 방이 그 글을 받아들였는지도 알려주지 않는다.
+  // 앞사람의 글이 먹혔는지 아닌지는 들어가 봐야 안다.
+  return `<div class="entry"><div class="entry-text">${escapeHtml(e.raw_text)}</div></div>`;
 }
 
 function escapeHtml(s) {
@@ -120,20 +81,23 @@ async function submitEntry() {
   btn.textContent = '공책이 글을 읽고 있다...';
 
   try {
-    const res = await api('/api/guestbook', { method: 'POST', body: JSON.stringify({ text }) });
+    await api('/api/guestbook', { method: 'POST', body: JSON.stringify({ text }) });
+
+    // 이 방이 글을 받아들였는지는 끝까지 알려주지 않는다.
+    // 무엇이 달라졌는지는 다음 사람이 들어가 봐야 안다.
     const box = $('write-result');
-    box.textContent = res.reason;
+    box.textContent = '당신은 공책을 덮었다.';
     box.classList.remove('hidden');
     $('write-text').value = '';
-    $('btn-submit').textContent = '적었다';
+    $('write-count').textContent = '0 / 500';
+    btn.textContent = '적었다';
 
     setTimeout(async () => {
       const book = await api('/api/guestbook');
       $('entries').innerHTML = book.entries.map(entryHtml).join('');
       $('entries').scrollTop = $('entries').scrollHeight;
       $('write-box').classList.add('hidden');
-      renderRoomStatus(book);
-    }, 2200);
+    }, 2000);
   } catch (e) {
     toast(e.message);
     btn.disabled = false;
@@ -149,71 +113,82 @@ async function enterRoom() {
     show('game');
 
     $('log').innerHTML = '';
-    $('pause').classList.add('hidden');
+    $('choices').innerHTML = '';
     $('ending').classList.add('hidden');
-    $('prompt').classList.add('hidden');
 
     game = new Game(world, $('view'), $('minimap'), {
       onLog: pushLog,
       onHud: renderHud,
-      onPause: (p) => $('pause').classList.toggle('hidden', !p),
-      onPrompt: (text) => {
-        const el = $('prompt');
-        if (text) { el.textContent = text; el.classList.remove('hidden'); }
-        else el.classList.add('hidden');
-      },
+      onChoices: renderChoices,
       onHit: flashRed,
       onEnd: endRun,
     });
     game.start();
-    $('view').requestPointerLock();
   } catch (e) {
     toast(e.message);
   }
 }
 
 function pushLog(text, cls = '') {
+  if (!text) return;
   const log = $('log');
+  // 지난 줄은 흐려진다. 방금 벌어진 일만 또렷하게.
+  log.querySelectorAll('.log-line').forEach((l) => l.classList.add('old'));
   const line = document.createElement('div');
   line.className = `log-line ${cls}`;
   line.textContent = text;
   log.appendChild(line);
-  while (log.children.length > 6) log.removeChild(log.firstChild);
-  setTimeout(() => line.remove(), 9000);
+  while (log.children.length > 7) log.removeChild(log.firstChild);
+  log.scrollTop = log.scrollHeight;
+}
+
+function renderChoices(list) {
+  const box = $('choices');
+  box.innerHTML = '';
+  list.forEach((c, i) => {
+    const b = document.createElement('button');
+    b.className = `choice ${c.kind || ''}`;
+    b.disabled = !!c.disabled;
+    b.innerHTML = `<span class="key">${i + 1}</span><span>${escapeHtml(c.label)}</span>` +
+                  (c.hint ? `<span class="hint">${escapeHtml(c.hint)}</span>` : '');
+    b.onclick = () => game?.choose(c.id);
+    box.appendChild(b);
+  });
 }
 
 function renderHud(h) {
-  $('hp-bar').style.width = `${(h.hp / h.maxHp) * 100}%`;
-  $('hp-text').textContent = h.noPain ? '∞' : h.hp;
+  $('hud-hp').innerHTML = h.noPain
+    ? '몸 <b>멀쩡하다</b>'
+    : `몸 <b class="${h.hp <= 35 ? 'low' : ''}">${h.hp}</b>`;
 
-  const names = { fist: '맨손', knife: '칼', pistol: '권총' };
-  const parts = [`<span class="hud-label">무기</span><span>${names[h.weapon]}</span>`];
-  if (h.weapon === 'pistol') parts.push(`<span>${h.ammo}발</span>`);
-  if (h.corpse > 0) parts.push(`<span class="hud-label">시체</span><span>${h.corpse}구</span>`);
-  $('hud-weapon').innerHTML = parts.join(' ');
+  const gear = [];
+  if (h.hasPistol) gear.push(`권총 <b>${h.ammo}</b>발`);
+  if (h.hasKnife) gear.push('칼');
+  if (h.corpse > 0) gear.push(`시체 <b>${h.corpse}</b>구`);
+  $('hud-gear').innerHTML = gear.join(' · ');
 
-  const timer = $('hud-timer');
-  if (h.hunger > 0) {
-    timer.classList.remove('hidden');
-    const m = Math.floor(h.hunger / 60), s = Math.floor(h.hunger % 60);
-    timer.innerHTML = `<span class="hud-label">배고픔</span><span>${m}:${String(s).padStart(2, '0')}</span>`;
-  } else timer.classList.add('hidden');
+  $('hud-turns').innerHTML = h.turnsLeft > 0 ? `배고픔 <b class="low">${h.turnsLeft}</b>` : '';
 }
 
 function flashRed() {
   const g = $('game');
-  g.style.boxShadow = 'inset 0 0 160px rgba(160,20,20,.75)';
-  setTimeout(() => { g.style.boxShadow = ''; }, 160);
+  g.style.boxShadow = 'inset 0 0 180px rgba(160,20,20,.8)';
+  setTimeout(() => { g.style.boxShadow = ''; }, 200);
 }
 
 async function endRun(result) {
-  const card = $('ending');
+  $('choices').innerHTML = '';
   const title = $('ending-title');
   const text = $('ending-text');
   const btn = $('btn-ending');
 
   if (result.won) {
-    try { await api(`/api/run/${runId}/clear`, { method: 'POST' }); } catch (e) { console.warn(e); }
+    try {
+      await api(`/api/run/${runId}/clear`, { method: 'POST' });
+    } catch (e) {
+      // 여기서 조용히 넘어가면 기입 권한이 없는 이유를 아무도 알 수 없다.
+      toast(e.message);
+    }
     title.textContent = '문 밖으로 나왔다';
     let body = '등 뒤에서 문이 닫힌다.';
     if (result.lostParts.length) {
@@ -232,7 +207,7 @@ async function endRun(result) {
     btn.textContent = '현관으로';
     btn.onclick = backToLobby;
   }
-  card.classList.remove('hidden');
+  $('ending').classList.remove('hidden');
 }
 
 function backToLobby() {
@@ -248,8 +223,7 @@ $('btn-read').onclick = openBook;
 $('btn-enter').onclick = enterRoom;
 $('btn-close-book').onclick = backToLobby;
 $('btn-submit').onclick = submitEntry;
-$('btn-resume').onclick = () => game?.setPaused(false);
-$('btn-give-up').onclick = () => { game?.die('스스로 걸음을 멈췄다.'); };
+$('btn-quit').onclick = () => game?.die('스스로 걸음을 멈췄다.');
 $('write-text').oninput = (e) => { $('write-count').textContent = `${e.target.value.length} / 500`; };
 
 loadLobby().catch((e) => toast(e.message));

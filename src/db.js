@@ -47,10 +47,9 @@ export const q = {
     RETURNING *`),
   userById: db.prepare('SELECT * FROM users WHERE id = ?'),
 
-  allEntries: db.prepare(`
-    SELECT e.id, e.raw_text, e.verdict, e.reason, e.created_at, u.username, u.avatar
-    FROM entries e JOIN users u ON u.id = e.user_id
-    ORDER BY e.id ASC`),
+  // 공책에 남는 건 글뿐이다. 누가 썼는지도, 그 글이 먹혔는지도 밖으로 내보내지 않는다.
+  // (판정과 작성자는 DB 에 그대로 남아 있으니 운영자는 언제든 들여다볼 수 있다.)
+  allEntries: db.prepare('SELECT id, raw_text FROM entries ORDER BY id ASC'),
   appliedRules: db.prepare(`
     SELECT id, raw_text, effects FROM entries WHERE verdict = 'applied' ORDER BY id ASC`),
   insertEntry: db.prepare(`

@@ -43,13 +43,10 @@ app.get('/api/me', (req, res) => {
 // ── 방명록 ──────────────────────────────────────────────────
 app.get('/api/guestbook', (req, res) => {
   const u = currentUser(req);
-  const rules = loadAppliedRules();
-  const state = foldEffects(rules.map((r) => r.effects));
+  // 글과 기입 권한 외에는 아무것도 내보내지 않는다. 몇 줄이 반영됐는지,
+  // 몇 명이 살아 나왔는지 알 수 있으면 이 방은 더 이상 무섭지 않다.
   res.json({
     entries: q.allEntries.all(),
-    stats: q.stats.get(),
-    // 방 내부 사정은 스포일러라 규모만 흘린다.
-    room: { ruleCount: rules.length, size: state.mazeSize },
     pendingWrite: u ? (q.pendingWrite.get(u.id)?.id ?? null) : null,
   });
 });
@@ -100,11 +97,10 @@ app.post('/api/run/start', requireUser, (req, res) => {
   const world = buildWorld(rules);
   const run = q.insertRun.get(req.user.id, world.seed, rules.length, Date.now());
 
-  // 출구가 요구하는 신체 부위는 미리 알려주지 않는다 (규칙이 허락하지 않는 한).
-  const payload = { ...world };
-  if (!world.state.exitCostKnown) payload.demandedPart = null;
-
-  res.json({ runId: run.id, world: payload });
+  // 요구하는 신체 부위는 월드에 담아 그대로 내려보낸다. 엔진이 문을 열지 말지
+  // 판단하려면 이 값이 있어야 한다. 규칙이 허락하지 않으면 화면에 이름을
+  // 띄우지 않을 뿐이다 (public/game.js 의 checkExit).
+  res.json({ runId: run.id, world });
 });
 
 app.post('/api/run/:id/clear', requireUser, (req, res) => {

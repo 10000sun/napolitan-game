@@ -1,18 +1,19 @@
 // ─────────────────────────────────────────────────────────────
-// 1인칭 레이캐스팅 엔진 (의존성 없음)
+// 턴제 텍스트 어드벤처 엔진 + 1인칭 배경 렌더
 //
-// 서버가 내려준 world 를 그대로 시뮬레이션한다. 방명록이 만든 규칙은
-// world.state 에 들어 있고, 엔진이 모르는 규칙은 flavor 로 들어와
-// 미로 안의 묘사로만 등장한다.
+// 화면은 지금 서 있는 자리에서 보이는 것을 그린다. 조작은 하지 않는다.
+// 플레이어는 선택지를 고르고, 고를 때마다 한 턴이 지나간다.
+// 돌아서는 것은 턴을 쓰지 않는다 — 주위를 둘러보는 데 대가를 물리면
+// 아무도 둘러보지 않는다.
 // ─────────────────────────────────────────────────────────────
 
 const TAU = Math.PI * 2;
 
 const COLORS = {
-  wallLight: [58, 52, 46],
-  wallDark: [38, 34, 30],
-  ceil: [16, 14, 13],
-  floor: [26, 23, 21],
+  wallLight: [96, 87, 76],
+  wallDark: [62, 56, 49],
+  ceil: [22, 19, 17],
+  floor: [38, 34, 30],
   monster: [122, 30, 26],
   corpse: [78, 70, 58],
   pistol: [150, 145, 130],
@@ -25,6 +26,12 @@ const BODY_PARTS = [
   '머리카락 한 움큼', '왼쪽 새끼손가락', '오른쪽 검지손가락', '왼쪽 손목', '오른쪽 팔',
   '왼쪽 발목', '오른쪽 다리', '왼쪽 귀', '앞니 두 개', '오른쪽 눈', '혀', '신장 하나',
 ];
+
+const ITEM_NAME = { pistol: '권총', knife: '칼', map: '지도' };
+
+// 0=동 1=남 2=서 3=북
+const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+const DIR_NAME = ['동', '남', '서', '북'];
 
 /* ── 소리 ─────────────────────────────────────────── */
 class Audio2 {
@@ -60,6 +67,7 @@ class Audio2 {
   pickup() { this.blip(660, 0.09, 'sine', 0.09); setTimeout(() => this.blip(880, 0.09, 'sine', 0.08), 70); }
   door() { this.blip(180, 0.5, 'sine', 0.12); }
   growl() { this.blip(55 + Math.random() * 20, 0.35, 'sawtooth', 0.06); }
+  step() { this.blip(120, 0.06, 'sine', 0.04); }
 }
 
 /* ── 게임 ─────────────────────────────────────────── */
@@ -77,49 +85,55 @@ export class Game {
     this.grid = world.grid.map((r) => r.slice());
     this.size = world.size;
 
-    // 플레이어
-    this.px = world.spawn.x;
-    this.py = world.spawn.y;
+    // 칸 단위 위치 + 바라보는 방향
+    this.cx = Math.floor(world.spawn.x);
+    this.cy = Math.floor(world.spawn.y);
+    this.facing = 0;
+
+    // 카메라는 이 값을 향해 부드럽게 따라간다
+    this.px = this.cx + 0.5;
+    this.py = this.cy + 0.5;
     this.angle = 0;
-    this.fov = 1.0; // plane 길이 ≒ 66°
+    this.fov = 1.0;   // 화면 평면의 길이. 약 66도.
+
     this.hp = 100;
     this.maxHp = 100;
     this.dead = false;
     this.won = false;
-    this.paused = false;
+    this.busy = false;
+    this.turn = 0;
 
-    // 소지품
     this.hasPistol = false;
     this.hasKnife = false;
     this.ammo = 0;
     this.carriedCorpse = 0;
-    this.weapon = 'fist';
 
-    // 규칙에서 온 상태
     this.mapKnown = !!this.s.map;
-    this.hungerLeft = this.s.hunger || 0;
+    this.turnsLeft = this.s.hunger ? Math.max(8, Math.round(this.s.hunger / 2)) : 0;
     this.lostParts = [];
-    this.exitAttempts = 0;
 
-    // 월드 물체
-    this.monsters = world.monsters.map((m) => ({ ...m }));
-    this.corpses = world.corpses.map((c, i) => ({ id: `c${i}`, x: c.x + 0.5, y: c.y + 0.5, taken: false }));
+    this.monsters = world.monsters.map((m) => ({
+      id: m.id, x: Math.floor(m.x), y: Math.floor(m.y), hp: 3, alive: true,
+    }));
+    this.corpses = world.corpses.map((c, i) => ({ id: `c${i}`, x: c.x, y: c.y, taken: false }));
     this.traps = world.traps.map((t, i) => ({ id: `t${i}`, x: t.x, y: t.y, sprung: false }));
-    this.items = world.items.filter((it) => !it.auto).map((it) => ({ ...it, taken: false }));
+    this.items = world.items.filter((it) => !it.auto)
+      .map((it) => ({ ...it, x: Math.floor(it.x), y: Math.floor(it.y), taken: false }));
     this.baits = [];
 
-    // 안개
     this.seen = Array.from({ length: this.size }, () => Array(this.size).fill(this.mapKnown));
 
-    this.keys = new Set();
     this.zBuf = [];
-    this.shiftTimer = 0;
-    this.lastT = 0;
     this.raf = 0;
-    this.msgCooldown = {};
+    this.lastT = 0;
 
-    this._bind();
+    this._onResize = () => this._resize();
+    this._onKey = (e) => this._hotkey(e);
+    window.addEventListener('resize', this._onResize);
+    window.addEventListener('keydown', this._onKey);
+
     this._resize();
+    this.reveal();
     this._intro();
   }
 
@@ -131,31 +145,45 @@ export class Game {
       this.raf = requestAnimationFrame(loop);
       const dt = Math.min(0.05, (t - this.lastT) / 1000);
       this.lastT = t;
-      if (!this.paused && !this.dead && !this.won) this.update(dt);
+      this.stepCamera(dt);
       this.render();
       this.drawMinimap();
     };
     this.raf = requestAnimationFrame(loop);
+    this.pushState();
   }
 
   stop() {
     cancelAnimationFrame(this.raf);
-    window.removeEventListener('keydown', this._onKeyDown);
-    window.removeEventListener('keyup', this._onKeyUp);
     window.removeEventListener('resize', this._onResize);
-    document.removeEventListener('mousemove', this._onMouseMove);
-    document.removeEventListener('pointerlockchange', this._onPointerLock);
-    this.canvas.removeEventListener('mousedown', this._onMouseDown);
+    window.removeEventListener('keydown', this._onKey);
   }
 
-  log(text, cls = '') { this.hooks.onLog?.(text, cls); }
+  log(text, cls = '') {
+    if (!text) return;
+    // 같은 말을 연달아 두 번 하지 않는다
+    if (text === this._lastLog) return;
+    this._lastLog = text;
+    this.hooks.onLog?.(text, cls);
+  }
 
-  /** 같은 메시지가 도배되지 않게. */
-  logOnce(key, text, cls = '', cooldown = 8000) {
-    const now = performance.now();
-    if (this.msgCooldown[key] && now - this.msgCooldown[key] < cooldown) return;
-    this.msgCooldown[key] = now;
-    this.log(text, cls);
+  _resize() {
+    const scale = 0.55;
+    this.rw = Math.max(200, Math.floor(this.canvas.clientWidth * scale) || 400);
+    this.rh = Math.max(120, Math.floor(this.canvas.clientHeight * scale) || 260);
+    this.canvas.width = this.rw;
+    this.canvas.height = this.rh;
+    this.img = this.ctx.createImageData(this.rw, this.rh);
+    const mmSize = Math.min(150, Math.max(96, Math.floor(window.innerWidth * 0.11)));
+    this.mm.width = this.mm.height = mmSize;
+  }
+
+  _hotkey(e) {
+    const n = parseInt(e.key, 10);
+    if (n >= 1 && n <= 9) {
+      const c = this.choices?.[n - 1];
+      if (c) { e.preventDefault(); this.choose(c.id); }
+    }
   }
 
   _intro() {
@@ -164,355 +192,228 @@ export class Game {
     } else {
       this.log('공책에 적힌 것들이 이미 이곳에 와 있다.', 'sys');
     }
-    // 방명록이 남긴, 엔진이 흉내내지 못하는 것들
-    for (const f of (this.s.flavor || []).slice(-4)) {
-      setTimeout(() => this.log(f, 'sys'), 900 + Math.random() * 2500);
-    }
+    for (const f of (this.s.flavor || []).slice(-3)) this.log(f, 'sys');
     if (this.mapKnown) this.log('지도를 손에 쥐고 있다. 미로의 구조가 전부 그려져 있다.');
-    if (this.s.noPain) this.log('이상하게도 아무 두려움이 들지 않는다. 여기서는 아파지지 않는다.', 'sys');
-    if (this.hungerLeft) this.log('배가 고프다. 시간이 많지 않다.', 'bad');
+    if (this.s.noPain) this.log('여기서는 아파지지 않는다. 그게 더 이상하다.', 'sys');
+    if (this.turnsLeft) this.log(`배가 고프다. ${this.turnsLeft}번쯤 더 움직이면 한계다.`, 'bad');
+    this.describe();
   }
 
-  /* ── 입력 ─────────────────────────────────────── */
-  _bind() {
-    this._onKeyDown = (e) => {
-      if (e.code === 'Escape') { this.togglePause(); return; }
-      if (this.paused || this.dead || this.won) return;
-      this.keys.add(e.code);
-      if (e.code === 'KeyE') this.interact();
-      if (e.code === 'KeyQ') this.throwBait();
-      if (e.code === 'Digit1') this.selectWeapon('fist');
-      if (e.code === 'Digit2' && this.hasKnife) this.selectWeapon('knife');
-      if (e.code === 'Digit3' && this.hasPistol) this.selectWeapon('pistol');
-      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space'].includes(e.code)) e.preventDefault();
-    };
-    this._onKeyUp = (e) => this.keys.delete(e.code);
-    this._onMouseMove = (e) => {
-      if (document.pointerLockElement !== this.canvas) return;
-      this.angle += e.movementX * 0.0022;
-    };
-    this._onMouseDown = (e) => {
-      if (document.pointerLockElement !== this.canvas) { this.canvas.requestPointerLock(); this.audio.resume(); return; }
-      if (this.paused || this.dead || this.won) return;
-      if (e.button === 0) this.attack();
-      if (e.button === 2) this.throwBait();
-    };
-    this._onPointerLock = () => {
-      if (document.pointerLockElement !== this.canvas && !this.dead && !this.won) this.setPaused(true);
-    };
-    this._onResize = () => this._resize();
-
-    window.addEventListener('keydown', this._onKeyDown);
-    window.addEventListener('keyup', this._onKeyUp);
-    window.addEventListener('resize', this._onResize);
-    document.addEventListener('mousemove', this._onMouseMove);
-    document.addEventListener('pointerlockchange', this._onPointerLock);
-    this.canvas.addEventListener('mousedown', this._onMouseDown);
-    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  /* ── 카메라 ───────────────────────────────────── */
+  stepCamera(dt) {
+    const tx = this.cx + 0.5, ty = this.cy + 0.5;
+    const ta = this.facing * (Math.PI / 2);
+    const k = Math.min(1, dt * 9);
+    this.px += (tx - this.px) * k;
+    this.py += (ty - this.py) * k;
+    let d = ta - this.angle;
+    while (d > Math.PI) d -= TAU;
+    while (d < -Math.PI) d += TAU;
+    this.angle += d * k;
   }
 
-  _resize() {
-    const scale = 0.55; // 저해상도로 그려서 올린다. 픽셀 느낌 + 성능
-    this.rw = Math.max(200, Math.floor(window.innerWidth * scale));
-    this.rh = Math.max(120, Math.floor(window.innerHeight * scale));
-    this.canvas.width = this.rw;
-    this.canvas.height = this.rh;
-    this.img = this.ctx.createImageData(this.rw, this.rh);
-    const mmSize = Math.min(180, Math.max(110, Math.floor(window.innerWidth * 0.13)));
-    this.mm.width = this.mm.height = mmSize;
-  }
-
-  togglePause() { if (!this.dead && !this.won) this.setPaused(!this.paused); }
-  setPaused(v) {
-    this.paused = v;
-    this.hooks.onPause?.(v);
-    if (!v) { this.canvas.requestPointerLock(); this.lastT = performance.now(); }
-    else if (document.pointerLockElement === this.canvas) document.exitPointerLock();
-  }
-
-  selectWeapon(w) { this.weapon = w; this.hooks.onHud?.(this.hudState()); }
-
-  /* ── 갱신 ─────────────────────────────────────── */
-  update(dt) {
-    this.movePlayer(dt);
-    this.updateMonsters(dt);
-    this.updateBaits(dt);
-    this.checkTraps();
-    this.checkExit();
-
-    if (this.hungerLeft > 0) {
-      this.hungerLeft -= dt;
-      if (this.hungerLeft <= 0) { this.hungerLeft = 0; this.die('굶어 죽었다.'); }
-      else if (this.hungerLeft < 30) this.logOnce('hunger', '눈앞이 흐려진다. 배가 너무 고프다.', 'bad', 12000);
-    }
-
-    if (this.s.shifting) {
-      this.shiftTimer += dt;
-      if (this.shiftTimer > 15) { this.shiftTimer = 0; this.shiftMaze(); }
-    }
-
-    this.hooks.onHud?.(this.hudState());
-  }
-
+  /* ── 상태 ─────────────────────────────────────── */
   hudState() {
     return {
       hp: Math.max(0, Math.round(this.hp)),
       maxHp: this.maxHp,
-      weapon: this.weapon,
       ammo: this.ammo,
       hasPistol: this.hasPistol,
       hasKnife: this.hasKnife,
       corpse: this.carriedCorpse,
-      hunger: this.hungerLeft,
+      turnsLeft: this.turnsLeft,
       noPain: this.s.noPain,
+      facing: DIR_NAME[this.facing],
     };
   }
 
-  movePlayer(dt) {
-    const running = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
-    const speed = (running ? 4.2 : 2.6) * dt;
-    const rot = 2.4 * dt;
-
-    if (this.keys.has('ArrowLeft')) this.angle -= rot;
-    if (this.keys.has('ArrowRight')) this.angle += rot;
-
-    let fx = 0, fy = 0;
-    const dx = Math.cos(this.angle), dy = Math.sin(this.angle);
-    if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) { fx += dx; fy += dy; }
-    if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) { fx -= dx; fy -= dy; }
-    if (this.keys.has('KeyA')) { fx += dy; fy -= dx; }
-    if (this.keys.has('KeyD')) { fx -= dy; fy += dx; }
-
-    const len = Math.hypot(fx, fy);
-    if (len > 0) {
-      fx = (fx / len) * speed; fy = (fy / len) * speed;
-      // 축을 따로 밀어서 벽에 부딪혀도 미끄러지게
-      if (!this.solid(this.px + fx + Math.sign(fx) * 0.18, this.py)) this.px += fx;
-      if (!this.solid(this.px, this.py + fy + Math.sign(fy) * 0.18)) this.py += fy;
-    }
-
-    const cx = Math.floor(this.px), cy = Math.floor(this.py);
-    this.reveal(cx, cy);
-  }
-
-  solid(x, y) {
-    const gx = Math.floor(x), gy = Math.floor(y);
-    if (gx < 0 || gy < 0 || gx >= this.size || gy >= this.size) return true;
-    return this.grid[gy][gx] === 1;
-  }
-
-  reveal(cx, cy) {
-    const r = 2;
-    for (let y = cy - r; y <= cy + r; y++) {
-      for (let x = cx - r; x <= cx + r; x++) {
-        if (x >= 0 && y >= 0 && x < this.size && y < this.size) this.seen[y][x] = true;
-      }
-    }
-  }
-
-  /* ── 괴물 ─────────────────────────────────────── */
-  updateMonsters(dt) {
-    const speed = 1.5 * (this.s.monsterSpeed || 1) * dt;
-    let nearest = Infinity;
-
-    for (const m of this.monsters) {
-      if (!m.alive) continue;
-      let tx = this.px, ty = this.py;
-
-      // 미끼가 있으면 그쪽으로 간다
-      const bait = this.nearestBait(m);
-      if (bait) { tx = bait.x; ty = bait.y; }
-
-      const d = Math.hypot(this.px - m.x, this.py - m.y);
-      nearest = Math.min(nearest, d);
-
-      const chasing = bait || (d < 9 && this.lineOfSight(m.x, m.y, this.px, this.py));
-      if (chasing) {
-        const a = Math.atan2(ty - m.y, tx - m.x);
-        const nx = m.x + Math.cos(a) * speed;
-        const ny = m.y + Math.sin(a) * speed;
-        if (!this.solid(nx, m.y)) m.x = nx;
-        if (!this.solid(m.x, ny)) m.y = ny;
-        if (d < 7 && Math.random() < dt * 0.5) this.audio.growl();
-      } else if (Math.random() < dt * 0.6) {
-        // 배회
-        m.wander = (m.wander ?? Math.random() * TAU) + (Math.random() - 0.5);
-        const nx = m.x + Math.cos(m.wander) * speed * 0.5;
-        const ny = m.y + Math.sin(m.wander) * speed * 0.5;
-        if (!this.solid(nx, ny)) { m.x = nx; m.y = ny; }
-      }
-
-      // 공격
-      if (!bait && d < 0.8) {
-        m.cd = (m.cd ?? 0) - dt;
-        if (m.cd <= 0) {
-          m.cd = 1.1;
-          this.damage(this.s.noPain ? 0 : 22, '괴물이 당신을 물어뜯었다.');
-        }
-      }
-    }
-
-    if (nearest < 4) this.logOnce('near', '숨소리가 가깝다.', 'bad', 9000);
-  }
-
-  nearestBait(m) {
-    let best = null, bd = 6;
-    for (const b of this.baits) {
-      const d = Math.hypot(b.x - m.x, b.y - m.y);
-      if (d < bd) { bd = d; best = b; }
-    }
-    return best;
-  }
-
-  updateBaits(dt) {
-    for (const b of this.baits) b.life -= dt;
-    this.baits = this.baits.filter((b) => b.life > 0);
-  }
-
-  lineOfSight(x0, y0, x1, y1) {
-    const dist = Math.hypot(x1 - x0, y1 - y0);
-    const steps = Math.ceil(dist * 4);
-    for (let i = 1; i < steps; i++) {
-      const t = i / steps;
-      if (this.solid(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)) return false;
-    }
-    return true;
-  }
-
-  /* ── 행동 ─────────────────────────────────────── */
-  attack() {
-    if (this.weapon === 'pistol') {
-      if (this.ammo <= 0) { this.log('탄창이 비었다.', 'bad'); return; }
-      this.ammo--;
-      this.audio.shot();
-      const hit = this.pickTarget(18, 0.14);
-      if (hit) this.hurtMonster(hit, 3);
-      else this.log('총성이 복도를 타고 멀어진다.');
-    } else {
-      const dmg = this.weapon === 'knife' ? 2 : 1;
-      const hit = this.pickTarget(1.4, 0.7);
-      this.audio.blip(200, 0.07, 'square', 0.06);
-      if (hit) this.hurtMonster(hit, dmg);
-    }
+  pushState() {
     this.hooks.onHud?.(this.hudState());
+    this.choices = this.buildChoices();
+    this.hooks.onChoices?.(this.choices);
   }
 
-  /** 시선 안에 있는 가장 가까운 괴물. */
-  pickTarget(maxDist, maxAngle) {
-    let best = null, bd = maxDist;
-    for (const m of this.monsters) {
-      if (!m.alive) continue;
-      const d = Math.hypot(m.x - this.px, m.y - this.py);
-      if (d > bd) continue;
-      let da = Math.atan2(m.y - this.py, m.x - this.px) - this.angle;
-      while (da > Math.PI) da -= TAU;
-      while (da < -Math.PI) da += TAU;
-      if (Math.abs(da) > maxAngle) continue;
-      if (!this.lineOfSight(this.px, this.py, m.x, m.y)) continue;
-      bd = d; best = m;
+  ahead(n = 1) {
+    const [dx, dy] = DIRS[this.facing];
+    return { x: this.cx + dx * n, y: this.cy + dy * n };
+  }
+
+  wall(x, y) {
+    if (x < 0 || y < 0 || x >= this.size || y >= this.size) return true;
+    return this.grid[y][x] === 1;
+  }
+
+  monsterAt(x, y) { return this.monsters.find((m) => m.alive && m.x === x && m.y === y); }
+
+  /** 바라보는 방향으로 벽에 막힐 때까지 훑어 첫 괴물을 찾는다. */
+  monsterInSight(maxDist = 8) {
+    const [dx, dy] = DIRS[this.facing];
+    for (let i = 1; i <= maxDist; i++) {
+      const x = this.cx + dx * i, y = this.cy + dy * i;
+      if (this.wall(x, y)) return null;
+      const m = this.monsterAt(x, y);
+      if (m) return { m, dist: i };
     }
-    return best;
+    return null;
+  }
+
+  atExit() { return !!this.w.exit && this.cx === this.w.exit.x && this.cy === this.w.exit.y; }
+
+  itemHere() { return this.items.find((it) => !it.taken && it.x === this.cx && it.y === this.cy); }
+  corpseHere() { return this.corpses.find((c) => !c.taken && c.x === this.cx && c.y === this.cy); }
+
+  /* ── 선택지 ───────────────────────────────────── */
+  buildChoices() {
+    if (this.dead || this.won) return [];
+    const out = [];
+    const a = this.ahead();
+    const blocked = this.wall(a.x, a.y);
+    const sight = this.monsterInSight();
+
+    if (this.atExit()) {
+      out.push(this.s.exitCost === 'random_body_part'
+        ? { id: 'exit', label: '무언가를 두고 나간다', kind: 'exit' }
+        : { id: 'exit', label: '문을 연다', kind: 'exit' });
+    }
+
+    const it = this.itemHere();
+    if (it) out.push({ id: 'take', label: `${ITEM_NAME[it.kind] || '무언가'}을(를) 줍는다`, kind: 'act' });
+    const co = this.corpseHere();
+    if (co) out.push({ id: 'corpse', label: '시체를 챙긴다', kind: 'act' });
+
+    if (sight) {
+      if (this.hasPistol && this.ammo > 0) {
+        out.push({ id: 'shoot', label: `총을 쏜다`, hint: `${this.ammo}발 남음`, kind: 'fight' });
+      }
+      if (sight.dist === 1) {
+        out.push({ id: 'melee', label: this.hasKnife ? '칼로 벤다' : '맨손으로 친다', kind: 'fight' });
+      }
+    }
+    if (this.carriedCorpse > 0) {
+      out.push({ id: 'bait', label: '시체를 던진다', hint: `${this.carriedCorpse}구`, kind: 'act' });
+    }
+
+    out.push(blocked
+      ? { id: 'forward', label: '앞은 벽이다', kind: 'move', disabled: true }
+      : { id: 'forward', label: '앞으로 나아간다', kind: 'move' });
+    out.push({ id: 'left', label: '왼쪽으로 돈다', kind: 'turn' });
+    out.push({ id: 'right', label: '오른쪽으로 돈다', kind: 'turn' });
+    out.push({ id: 'back', label: '뒤돌아선다', kind: 'turn' });
+    return out;
+  }
+
+  /* ── 진행 ─────────────────────────────────────── */
+  choose(id) {
+    if (this.busy || this.dead || this.won) return;
+    const c = (this.choices || []).find((x) => x.id === id);
+    if (!c || c.disabled) return;
+    this.audio.resume();
+
+    let spendsTurn = true;
+    switch (id) {
+      case 'left': this.facing = (this.facing + 3) % 4; spendsTurn = false; this.describe(); break;
+      case 'right': this.facing = (this.facing + 1) % 4; spendsTurn = false; this.describe(); break;
+      case 'back': this.facing = (this.facing + 2) % 4; spendsTurn = false; this.describe(); break;
+      case 'forward': this.moveForward(); break;
+      case 'take': this.takeItem(); break;
+      case 'corpse': this.takeCorpse(); break;
+      case 'shoot': this.shoot(); break;
+      case 'melee': this.melee(); break;
+      case 'bait': this.throwBait(); break;
+      case 'exit': this.tryExit(); break;
+      default: return;
+    }
+
+    if (this.won || this.dead) { this.pushState(); return; }
+    if (spendsTurn) this.endTurn();
+    this.pushState();
+  }
+
+  moveForward() {
+    const a = this.ahead();
+    if (this.wall(a.x, a.y)) return;
+    const m = this.monsterAt(a.x, a.y);
+    if (m) { this.log('앞을 가로막은 것이 비키지 않는다.', 'bad'); return; }
+    this.cx = a.x; this.cy = a.y;
+    this.audio.step();
+    this.reveal();
+    this.checkTrap();
+    if (!this.dead) this.describe();
+  }
+
+  takeItem() {
+    const it = this.itemHere();
+    if (!it) return;
+    it.taken = true;
+    this.audio.pickup();
+    if (it.kind === 'pistol') {
+      this.hasPistol = true;
+      this.ammo += this.s.ammo || 12;
+      this.log(`권총을 주웠다. 탄약 ${this.ammo}발.`);
+    } else if (it.kind === 'knife') {
+      this.hasKnife = true;
+      this.log('칼을 주웠다. 손에 익는다.');
+    } else if (it.kind === 'map') {
+      this.mapKnown = true;
+      this.log('지도를 펼쳤다. 미로가 전부 드러났다.');
+    }
+  }
+
+  takeCorpse() {
+    const c = this.corpseHere();
+    if (!c) return;
+    c.taken = true;
+    this.carriedCorpse++;
+    this.log(`비교적 멀쩡한 시체를 챙겼다. (${this.carriedCorpse}구)`);
+  }
+
+  shoot() {
+    const sight = this.monsterInSight();
+    if (this.ammo <= 0) { this.log('탄창이 비었다.', 'bad'); return; }
+    this.ammo--;
+    this.audio.shot();
+    if (!sight) { this.log('총성이 복도를 타고 멀어진다. 아무것도 맞지 않았다.'); return; }
+    this.hurtMonster(sight.m, 3);
+  }
+
+  melee() {
+    const sight = this.monsterInSight(1);
+    this.audio.blip(200, 0.07, 'square', 0.06);
+    if (!sight) { this.log('허공을 갈랐다.'); return; }
+    this.hurtMonster(sight.m, this.hasKnife ? 2 : 1);
   }
 
   hurtMonster(m, dmg) {
     m.hp -= dmg;
     if (m.hp <= 0) {
       m.alive = false;
-      this.log('괴물이 무너져 내렸다.');
       this.audio.blip(60, 0.4, 'sawtooth', 0.1);
+      this.log('그것이 무너져 내렸다.');
       if (this.monsters.every((x) => !x.alive)) this.log('더 이상 아무 소리도 들리지 않는다.', 'sys');
     } else {
       this.log('맞았다. 아직 살아 있다.', 'bad');
     }
   }
 
-  interact() {
-    // 아이템
-    for (const it of this.items) {
-      if (it.taken) continue;
-      if (Math.hypot(it.x - this.px, it.y - this.py) < 1.0) {
-        it.taken = true;
-        this.audio.pickup();
-        if (it.kind === 'pistol') {
-          this.hasPistol = true;
-          this.ammo += this.s.ammo || 12;
-          this.selectWeapon('pistol');
-          this.log(`권총을 주웠다. 탄약 ${this.ammo}발.`);
-        } else if (it.kind === 'knife') {
-          this.hasKnife = true;
-          this.selectWeapon('knife');
-          this.log('칼을 주웠다.');
-        } else if (it.kind === 'map') {
-          this.mapKnown = true;
-          this.log('지도를 펼쳤다. 미로가 전부 드러났다.');
-        }
-        this.hooks.onHud?.(this.hudState());
-        return;
-      }
-    }
-    // 시체 — 미끼로 쓸 수 있다
-    for (const c of this.corpses) {
-      if (c.taken) continue;
-      if (Math.hypot(c.x - this.px, c.y - this.py) < 1.0) {
-        c.taken = true;
-        this.carriedCorpse++;
-        this.log(`비교적 멀쩡한 시체를 챙겼다. (${this.carriedCorpse}구) — Q 로 던진다.`);
-        this.hooks.onHud?.(this.hudState());
-        return;
-      }
-    }
-    // 출구
-    if (this.atExit()) { this.tryExit(); return; }
-    this.log('아무것도 없다.');
-  }
-
   throwBait() {
     if (this.carriedCorpse <= 0) return;
     this.carriedCorpse--;
-    const bx = this.px + Math.cos(this.angle) * 2.5;
-    const by = this.py + Math.sin(this.angle) * 2.5;
-    this.baits.push({ x: this.solid(bx, by) ? this.px : bx, y: this.solid(bx, by) ? this.py : by, life: 14 });
+    const a = this.ahead();
+    const spot = this.wall(a.x, a.y) ? { x: this.cx, y: this.cy } : a;
+    this.baits.push({ x: spot.x, y: spot.y, life: 6 });
     this.log('시체를 던졌다. 무언가가 그쪽으로 몰려간다.');
-    this.hooks.onHud?.(this.hudState());
   }
 
-  checkTraps() {
-    const gx = Math.floor(this.px), gy = Math.floor(this.py);
-    for (const t of this.traps) {
-      if (t.sprung || t.x !== gx || t.y !== gy) continue;
-      t.sprung = true;
-      if (this.s.noPain) { this.log('무언가가 발목을 관통했다. 아무렇지도 않다.', 'sys'); }
-      else this.damage(45, '함정이다. 바닥에서 솟은 것이 몸을 꿰뚫었다.');
-    }
-  }
-
-  atExit() {
-    if (!this.w.exit) return false;
-    return Math.floor(this.px) === this.w.exit.x && Math.floor(this.py) === this.w.exit.y;
-  }
-
-  checkExit() {
-    if (!this.w.exit) {
-      this.logOnce('noexit', '출구가 있던 자리에 아무것도 없다.', 'bad', 20000);
-      return;
-    }
-    if (this.atExit()) {
-      if (this.s.exitCost === 'random_body_part') {
-        this.hooks.onPrompt?.(this.s.exitCostKnown && this.w.demandedPart
-          ? `문이 ${this.w.demandedPart}을(를) 요구한다.  [E] 두고 나간다`
-          : '문이 열리지 않는다. 무언가를 두고 가야 한다.  [E] 시도한다');
-      } else {
-        this.hooks.onPrompt?.('[E] 문을 연다');
-      }
-    } else {
-      this.hooks.onPrompt?.(null);
-    }
+  checkTrap() {
+    const t = this.traps.find((t) => !t.sprung && t.x === this.cx && t.y === this.cy);
+    if (!t) return;
+    t.sprung = true;
+    if (this.s.noPain) this.log('바닥에서 솟은 것이 발목을 관통했다. 아무렇지도 않다.', 'sys');
+    else this.damage(45, '함정이다. 바닥에서 솟은 것이 몸을 꿰뚫었다.');
   }
 
   tryExit() {
     if (this.s.exitCost !== 'random_body_part') { this.escape(); return; }
-
-    this.exitAttempts++;
     const part = BODY_PARTS[Math.floor(Math.random() * BODY_PARTS.length)];
     this.lostParts.push(part);
 
@@ -521,11 +422,9 @@ export class Game {
       this.escape();
       return;
     }
-
     if (this.s.noPain) {
       this.log(`${part}을(를) 잘라 내려놓았다. 아프지 않다. 문은 그대로다.`, 'sys');
     } else {
-      // "장기 같은 거 나오면 그냥 죽어야되는 듯."
       const fatal = ['신장 하나', '혀', '오른쪽 눈'].includes(part);
       this.damage(fatal ? 100 : 30, `${part}을(를) 잘라 내려놓았다. 문은 열리지 않는다.`);
     }
@@ -535,14 +434,11 @@ export class Game {
     if (this.won || this.dead) return;
     this.won = true;
     this.audio.door();
-    if (document.pointerLockElement === this.canvas) document.exitPointerLock();
-
-    const healed = this.s.healOnExit && this.lostParts.length > 0;
     this.hooks.onEnd?.({
       won: true,
       lostParts: this.lostParts,
-      healed,
-      elapsed: Date.now(),
+      healed: this.s.healOnExit && this.lostParts.length > 0,
+      turns: this.turn,
     });
   }
 
@@ -558,22 +454,127 @@ export class Game {
   die(reason) {
     if (this.dead || this.won) return;
     this.dead = true;
-    if (document.pointerLockElement === this.canvas) document.exitPointerLock();
     this.hooks.onEnd?.({ won: false, reason, lostParts: this.lostParts });
   }
 
-  /** "미로 구조가 계속 바뀌는" 규칙이 반영됐을 때만 돈다. */
+  /* ── 턴 넘기기 ─────────────────────────────────── */
+  endTurn() {
+    this.turn++;
+    this.moveMonsters();
+    if (this.dead) return;
+
+    for (const b of this.baits) b.life--;
+    this.baits = this.baits.filter((b) => b.life > 0);
+
+    if (this.turnsLeft > 0) {
+      this.turnsLeft--;
+      if (this.turnsLeft === 0) { this.die('굶어 죽었다.'); return; }
+      if (this.turnsLeft <= 5) this.log(`눈앞이 흐려진다. (${this.turnsLeft})`, 'bad');
+    }
+
+    if (this.s.shifting && this.turn % 8 === 0) this.shiftMaze();
+  }
+
+  moveMonsters() {
+    const steps = (this.s.monsterSpeed || 1) >= 2 ? 2 : 1;
+    for (let s = 0; s < steps; s++) {
+      for (const m of this.monsters) {
+        if (!m.alive || this.dead) continue;
+
+        // 붙어 있으면 문다
+        if (Math.abs(m.x - this.cx) + Math.abs(m.y - this.cy) === 0) {
+          this.damage(this.s.noPain ? 0 : 22, '그것이 당신을 물어뜯었다.');
+          continue;
+        }
+
+        const bait = this.baits[0];
+        const tx = bait ? bait.x : this.cx;
+        const ty = bait ? bait.y : this.cy;
+        const d = Math.abs(tx - m.x) + Math.abs(ty - m.y);
+        if (!bait && d > 7) continue;                       // 멀면 관심 없다
+        if (!bait && !this.los(m.x, m.y, this.cx, this.cy)) continue;
+
+        const opts = DIRS
+          .map(([dx, dy]) => ({ x: m.x + dx, y: m.y + dy }))
+          .filter((c) => !this.wall(c.x, c.y) && !this.monsterAt(c.x, c.y))
+          .sort((a, b) =>
+            (Math.abs(tx - a.x) + Math.abs(ty - a.y)) - (Math.abs(tx - b.x) + Math.abs(ty - b.y)));
+        if (opts.length && (Math.abs(tx - opts[0].x) + Math.abs(ty - opts[0].y)) < d) {
+          m.x = opts[0].x; m.y = opts[0].y;
+        }
+        if (m.x === this.cx && m.y === this.cy) {
+          this.damage(this.s.noPain ? 0 : 22, '그것이 당신을 덮쳤다.');
+        }
+      }
+    }
+    const near = this.monsters.filter((m) => m.alive)
+      .some((m) => Math.abs(m.x - this.cx) + Math.abs(m.y - this.cy) <= 3);
+    if (near) { this.audio.growl(); this.log('숨소리가 가깝다.', 'bad'); }
+  }
+
+  los(x0, y0, x1, y1) {
+    const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) * 3;
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      if (this.wall(Math.floor(x0 + (x1 - x0) * t + 0.5), Math.floor(y0 + (y1 - y0) * t + 0.5))) return false;
+    }
+    return true;
+  }
+
+  /* ── 묘사 ─────────────────────────────────────── */
+  describe() {
+    const bits = [];
+    const a = this.ahead();
+
+    if (this.atExit()) {
+      bits.push('문이 눈앞에 있다.');
+    } else if (this.wall(a.x, a.y)) {
+      bits.push('앞은 막혀 있다.');
+    } else {
+      let n = 0;
+      const [dx, dy] = DIRS[this.facing];
+      while (n < 12 && !this.wall(this.cx + dx * (n + 1), this.cy + dy * (n + 1))) n++;
+      bits.push(n >= 5 ? '긴 복도가 어둠 속으로 이어진다.' : `${DIR_NAME[this.facing]}쪽으로 길이 이어진다.`);
+      if (this.w.exit && this.cx + dx * n === this.w.exit.x && this.cy + dy * n === this.w.exit.y) {
+        bits.push('복도 끝에서 희미한 빛이 새어 나온다.');
+      }
+    }
+
+    const sight = this.monsterInSight();
+    if (sight) {
+      bits.push(sight.dist === 1
+        ? '바로 앞에 그것이 서 있다.'
+        : `${sight.dist}걸음 앞에 무언가 웅크리고 있다.`);
+    }
+
+    const it = this.itemHere();
+    if (it) bits.push(`발밑에 ${ITEM_NAME[it.kind] || '무언가'}이(가) 놓여 있다.`);
+    if (this.corpseHere()) bits.push('바닥에 시체가 널브러져 있다.');
+    if (this.traps.some((t) => !t.sprung && this.s.mapTraps && t.x === a.x && t.y === a.y)) {
+      bits.push('지도에 따르면 앞 칸에 함정이 있다.');
+    }
+
+    this.log(bits.join(' '));
+  }
+
+  reveal() {
+    const r = 2;
+    for (let y = this.cy - r; y <= this.cy + r; y++) {
+      for (let x = this.cx - r; x <= this.cx + r; x++) {
+        if (x >= 0 && y >= 0 && x < this.size && y < this.size) this.seen[y][x] = true;
+      }
+    }
+  }
+
   shiftMaze() {
-    const px = Math.floor(this.px), py = Math.floor(this.py);
     const backup = this.grid.map((r) => r.slice());
     for (let k = 0; k < 6; k++) {
       const x = 1 + Math.floor(Math.random() * (this.size - 2));
       const y = 1 + Math.floor(Math.random() * (this.size - 2));
-      if ((x === px && y === py) || (this.w.exit && x === this.w.exit.x && y === this.w.exit.y)) continue;
+      if ((x === this.cx && y === this.cy) || (this.w.exit && x === this.w.exit.x && y === this.w.exit.y)) continue;
       this.grid[y][x] = this.grid[y][x] === 1 ? 0 : 1;
     }
-    // 출구까지 길이 끊기면 되돌린다
-    if (this.w.exit && !this.reachable(px, py, this.w.exit.x, this.w.exit.y)) {
+    if (this.w.exit && !this.reachable(this.cx, this.cy, this.w.exit.x, this.w.exit.y)) {
       this.grid = backup;
       return;
     }
@@ -586,17 +587,16 @@ export class Game {
     for (let i = 0; i < q.length; i++) {
       const [x, y] = q[i];
       if (x === tx && y === ty) return true;
-      for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+      for (const [dx, dy] of DIRS) {
         const nx = x + dx, ny = y + dy, key = `${nx},${ny}`;
-        if (nx < 0 || ny < 0 || nx >= this.size || ny >= this.size) continue;
-        if (this.grid[ny][nx] === 1 || seen.has(key)) continue;
+        if (this.wall(nx, ny) || seen.has(key)) continue;
         seen.add(key); q.push([nx, ny]);
       }
     }
     return false;
   }
 
-  /* ── 렌더 ─────────────────────────────────────── */
+/* ── 렌더 ─────────────────────────────────────── */
   render() {
     const { rw, rh, img } = this;
     const data = img.data;
@@ -650,7 +650,7 @@ export class Game {
       const y1 = Math.min(rh - 1, Math.floor(lineH / 2 + rh / 2));
 
       const base = side === 1 ? COLORS.wallDark : COLORS.wallLight;
-      const fog = Math.max(0.08, Math.min(1, 3.2 / d));
+      const fog = Math.max(0.14, Math.min(1, 5.0 / d));
       const r = base[0] * fog, g = base[1] * fog, b = base[2] * fog;
 
       for (let y = y0; y <= y1; y++) {
@@ -659,104 +659,229 @@ export class Game {
       }
     }
 
-    // 스프라이트
-    this.renderSprites(data, dirX, dirY, planeX, planeY);
-
     this.ctx.putImageData(img, 0, 0);
-    this.drawWeapon();
+    this.drawSprites();
   }
 
   collectSprites() {
     const out = [];
-    for (const m of this.monsters) if (m.alive) out.push({ x: m.x, y: m.y, color: COLORS.monster, h: 1.0, w: 0.6 });
-    for (const c of this.corpses) if (!c.taken) out.push({ x: c.x, y: c.y, color: COLORS.corpse, h: 0.16, w: 0.62, ground: true });
-    for (const b of this.baits) out.push({ x: b.x, y: b.y, color: COLORS.corpse, h: 0.16, w: 0.62, ground: true });
+    for (const m of this.monsters) {
+      if (m.alive) out.push({ kind: 'monster', x: m.x + 0.5, y: m.y + 0.5, h: 1.05, w: 0.75 });
+    }
+    for (const c of this.corpses) {
+      if (!c.taken) out.push({ kind: 'corpse', x: c.x + 0.5, y: c.y + 0.5, h: 0.3, w: 0.85, ground: true });
+    }
+    for (const b of this.baits) {
+      out.push({ kind: 'corpse', x: b.x + 0.5, y: b.y + 0.5, h: 0.3, w: 0.85, ground: true });
+    }
     for (const it of this.items) {
       if (it.taken) continue;
-      out.push({ x: it.x, y: it.y, color: COLORS[it.kind] || COLORS.pistol, h: 0.12, w: 0.22, ground: true });
+      out.push({ kind: it.kind, x: it.x + 0.5, y: it.y + 0.5, h: 0.22, w: 0.4, ground: true });
     }
     for (const t of this.traps) {
-      // 함정은 지도가 있어야 보인다. 아니면 앞사람 시체로 눈치챌 수밖에.
-      if (this.s.mapTraps && !t.sprung) out.push({ x: t.x + 0.5, y: t.y + 0.5, color: COLORS.trap, h: 0.1, w: 0.9, ground: true });
+      if (this.s.mapTraps && !t.sprung) {
+        out.push({ kind: 'trap', x: t.x + 0.5, y: t.y + 0.5, h: 0.06, w: 0.95, ground: true });
+      }
     }
-    if (this.w.exit) out.push({ x: this.w.exit.x + 0.5, y: this.w.exit.y + 0.5, color: COLORS.exit, h: 1.3, w: 0.9, glow: true });
+    if (this.w.exit) out.push({ kind: 'door', x: this.w.exit.x + 0.5, y: this.w.exit.y + 0.5, h: 0.92, w: 0.72 });
     return out;
   }
 
-  renderSprites(data, dirX, dirY, planeX, planeY) {
+  /**
+   * 스프라이트는 픽셀 버퍼가 아니라 캔버스 2D 로 그린다.
+   * 단색 덩어리 대신 실루엣을 그려야 그게 무엇인지 알아볼 수 있다.
+   * 벽에 가려지는 건 z버퍼로 만든 클립 영역으로 처리한다.
+   */
+  drawSprites() {
     const { rw, rh } = this;
-    const sprites = this.collectSprites()
-      .map((s) => ({ ...s, d: (s.x - this.px) ** 2 + (s.y - this.py) ** 2 }))
-      .sort((a, b) => b.d - a.d);
-
+    const c = this.ctx;
+    const dirX = Math.cos(this.angle), dirY = Math.sin(this.angle);
+    const planeX = -dirY * this.fov, planeY = dirX * this.fov;
     const invDet = 1 / (planeX * dirY - dirX * planeY);
+
+    const sprites = this.collectSprites()
+      .map((s) => ({ ...s, d2: (s.x - this.px) ** 2 + (s.y - this.py) ** 2 }))
+      .sort((a, b) => b.d2 - a.d2);
 
     for (const s of sprites) {
       const sx = s.x - this.px, sy = s.y - this.py;
       const tx = invDet * (dirY * sx - dirX * sy);
       const ty = invDet * (-planeY * sx + planeX * sy);
-      if (ty <= 0.1) continue;
+      if (ty <= 0.25) continue;
 
-      const screenX = Math.floor((rw / 2) * (1 + tx / ty));
-      const height = Math.abs(Math.floor(rh / ty)) * s.h;
-      const width = Math.abs(Math.floor(rh / ty)) * s.w;
+      const unit = Math.abs(rh / ty);
+      const screenX = (rw / 2) * (1 + tx / ty);
+      const w = unit * s.w;
+      const h = unit * s.h;
+      const floorY = rh / 2 + unit / 2;             // 이 거리에서 바닥이 닿는 높이
+      const bottom = s.ground ? floorY : floorY;
+      const top = bottom - h;
 
-      // 바닥에 놓인 것은 아래쪽에 붙인다
-      const centerY = s.ground ? rh / 2 + Math.abs(Math.floor(rh / ty)) / 2 - height / 2 : rh / 2;
-      const y0 = Math.max(0, Math.floor(centerY - height / 2));
-      const y1 = Math.min(rh - 1, Math.floor(centerY + height / 2));
-      const x0 = Math.max(0, Math.floor(screenX - width / 2));
-      const x1 = Math.min(rw - 1, Math.floor(screenX + width / 2));
+      const x0 = Math.floor(screenX - w / 2), x1 = Math.ceil(screenX + w / 2);
+      if (x1 < 0 || x0 >= rw) continue;
 
-      const fog = Math.max(0.12, Math.min(1, 3.6 / ty));
-      const glow = s.glow ? 1 + 0.35 * Math.sin(performance.now() / 300) : 1;
-      const r = Math.min(255, s.color[0] * fog * glow);
-      const g = Math.min(255, s.color[1] * fog * glow);
-      const b = Math.min(255, s.color[2] * fog * glow);
-
-      const halfW = Math.max(1, width / 2);
-      const halfH = height / 2;
-
-      for (let x = x0; x <= x1; x++) {
-        if (ty >= this.zBuf[x]) continue;
-        // 타원으로 깎는다. 각진 사각형이 아니라 덩어리로 보이도록.
-        const t = (x - screenX) / halfW;
-        if (Math.abs(t) > 1) continue;
-        const ext = halfH * Math.sqrt(1 - t * t);
-        const ya = Math.max(y0, Math.floor(centerY - ext));
-        const yb = Math.min(y1, Math.ceil(centerY + ext));
-        // 위쪽을 살짝 어둡게 해서 입체감을 준다
-        for (let y = ya; y <= yb; y++) {
-          const v = 0.75 + 0.25 * ((y - ya) / Math.max(1, yb - ya));
-          const i = (y * rw + x) * 4;
-          data[i] = r * v; data[i + 1] = g * v; data[i + 2] = b * v; data[i + 3] = 255;
-        }
+      // 벽 뒤에 있는 열은 잘라낸다
+      const runs = [];
+      let runStart = -1;
+      for (let x = Math.max(0, x0); x <= Math.min(rw - 1, x1); x++) {
+        const vis = ty < this.zBuf[x];
+        if (vis && runStart < 0) runStart = x;
+        if (!vis && runStart >= 0) { runs.push([runStart, x - 1]); runStart = -1; }
       }
+      if (runStart >= 0) runs.push([runStart, Math.min(rw - 1, x1)]);
+      if (!runs.length) continue;
+
+      const fog = Math.max(0.16, Math.min(1, 5.2 / ty));
+
+      c.save();
+      c.beginPath();
+      for (const [a, b] of runs) c.rect(a, 0, b - a + 1, rh);
+      c.clip();
+      this.paintSprite(s.kind, screenX, top, bottom, w, fog, ty);
+      c.restore();
     }
   }
 
-  /** 화면 하단의 무기. 캔버스 2D 로 간단히. */
-  drawWeapon() {
-    const c = this.ctx, w = this.rw, h = this.rh;
-    const bob = Math.sin(performance.now() / 180) * (this.keys.size ? 3 : 1);
-    c.save();
-    if (this.weapon === 'pistol') {
-      c.fillStyle = '#26221e';
-      c.fillRect(w * 0.52, h - 42 + bob, 22, 42);
-      c.fillRect(w * 0.545, h - 54 + bob, 12, 16);
-    } else if (this.weapon === 'knife') {
-      c.fillStyle = '#9a9aa2';
+  paintSprite(kind, cx, top, bottom, w, fog, dist) {
+    const c = this.ctx;
+    const h = bottom - top;
+    const dim = (rgb, k = 1) => `rgb(${rgb.map((v) => Math.round(Math.min(255, v * fog * k))).join(',')})`;
+
+    if (kind === 'monster') {
+      // 비쩍 마른 실루엣. 어깨가 좁고, 팔이 무릎보다 아래까지 내려온다.
+      const ink = `rgba(5,3,3,${Math.min(0.97, 0.6 + fog * 0.4)})`;
+      const shoulder = w * 0.34;
+      const hip = w * 0.17;
+      const headY = top + h * 0.13;
+      const shoulderY = top + h * 0.26;
+
+      c.fillStyle = ink;
+      // 몸통
       c.beginPath();
-      c.moveTo(w * 0.58, h + bob);
-      c.lineTo(w * 0.62, h - 60 + bob);
-      c.lineTo(w * 0.645, h - 55 + bob);
-      c.lineTo(w * 0.615, h + bob);
-      c.closePath(); c.fill();
-    } else {
-      c.fillStyle = '#5c4b42';
-      c.fillRect(w * 0.56, h - 26 + bob, 34, 26);
+      c.moveTo(cx - shoulder, shoulderY);
+      c.quadraticCurveTo(cx - shoulder * 1.05, top + h * 0.6, cx - hip, bottom);
+      c.lineTo(cx + hip, bottom);
+      c.quadraticCurveTo(cx + shoulder * 1.05, top + h * 0.6, cx + shoulder, shoulderY);
+      c.quadraticCurveTo(cx, top + h * 0.19, cx - shoulder, shoulderY);
+      c.closePath();
+      c.fill();
+
+      // 앞으로 처진 머리
+      c.beginPath();
+      c.ellipse(cx, headY, w * 0.15, h * 0.1, 0, 0, TAU);
+      c.fill();
+      c.beginPath();                                   // 목
+      c.moveTo(cx - w * 0.05, headY);
+      c.lineTo(cx + w * 0.05, headY);
+      c.lineTo(cx + w * 0.07, shoulderY);
+      c.lineTo(cx - w * 0.07, shoulderY);
+      c.closePath();
+      c.fill();
+
+      // 바닥까지 늘어진 팔
+      c.strokeStyle = ink;
+      c.lineWidth = Math.max(1.2, w * 0.062);
+      c.lineCap = 'round';
+      for (const side of [-1, 1]) {
+        c.beginPath();
+        c.moveTo(cx + side * shoulder * 0.9, shoulderY + h * 0.03);
+        c.quadraticCurveTo(cx + side * w * 0.5, top + h * 0.62, cx + side * w * 0.33, bottom - h * 0.02);
+        c.stroke();
+      }
+
+      // 눈. 작고 가깝게 붙어 있을수록 사람 같지 않다.
+      const eyeR = Math.max(0.7, w * 0.028);
+      c.fillStyle = `rgba(206,172,104,${Math.min(1, 0.4 + fog * 0.6)})`;
+      for (const side of [-1, 1]) {
+        c.beginPath();
+        c.arc(cx + side * w * 0.062, headY - h * 0.01, eyeR, 0, TAU);
+        c.fill();
+      }
+      return;
     }
-    c.restore();
+
+    if (kind === 'door') {
+      const dw = w, dh = h;
+      const x = cx - dw / 2, y = bottom - dh;
+      // 문틈으로 새어 나오는 빛
+      const g = c.createLinearGradient(x, y, x, bottom);
+      g.addColorStop(0, dim([120, 98, 44], 1.1));
+      g.addColorStop(0.55, dim([196, 164, 78], 1.15));
+      g.addColorStop(1, dim([92, 74, 34]));
+      c.fillStyle = g;
+      c.fillRect(x, y, dw, dh);
+      c.fillStyle = `rgba(10,8,7,${0.55 + fog * 0.35})`;
+      c.fillRect(x + dw * 0.08, y + dh * 0.06, dw * 0.84, dh * 0.94);   // 문짝
+      c.fillStyle = dim([214, 186, 108], 1.2);
+      c.fillRect(x + dw * 0.72, y + dh * 0.52, Math.max(1.2, dw * 0.06), Math.max(1.2, dh * 0.05)); // 손잡이
+      return;
+    }
+
+    if (kind === 'corpse') {
+      // 웅크린 채 굳은 덩어리 + 뻗어 나온 팔
+      c.fillStyle = dim([74, 66, 56]);
+      c.beginPath();
+      c.ellipse(cx, bottom - h * 0.35, w * 0.34, h * 0.5, 0, 0, TAU);
+      c.fill();
+      c.beginPath();
+      c.ellipse(cx - w * 0.26, bottom - h * 0.2, w * 0.18, h * 0.34, 0.4, 0, TAU);
+      c.fill();
+      c.strokeStyle = dim([88, 78, 66]);
+      c.lineWidth = Math.max(1, w * 0.06);
+      c.lineCap = 'round';
+      c.beginPath();
+      c.moveTo(cx + w * 0.1, bottom - h * 0.3);
+      c.lineTo(cx + w * 0.46, bottom - h * 0.06);
+      c.stroke();
+      return;
+    }
+
+    if (kind === 'pistol') {
+      const s = w * 0.5;
+      c.fillStyle = dim([158, 154, 142], 1.1);
+      c.fillRect(cx - s * 0.55, bottom - h * 0.6, s * 1.1, Math.max(1.2, h * 0.24));   // 총열
+      c.fillRect(cx - s * 0.1, bottom - h * 0.42, Math.max(1.2, s * 0.3), h * 0.42);   // 손잡이
+      return;
+    }
+
+    if (kind === 'knife') {
+      c.fillStyle = dim([186, 188, 194], 1.2);
+      c.beginPath();
+      c.moveTo(cx - w * 0.42, bottom - h * 0.18);
+      c.lineTo(cx + w * 0.18, bottom - h * 0.52);
+      c.lineTo(cx + w * 0.24, bottom - h * 0.34);
+      c.lineTo(cx - w * 0.36, bottom - h * 0.02);
+      c.closePath(); c.fill();
+      c.fillStyle = dim([70, 52, 40]);
+      c.fillRect(cx + w * 0.18, bottom - h * 0.5, w * 0.24, Math.max(1.2, h * 0.2));
+      return;
+    }
+
+    if (kind === 'map') {
+      c.fillStyle = dim([206, 196, 168], 1.15);
+      c.beginPath();
+      c.moveTo(cx - w * 0.4, bottom - h * 0.1);
+      c.lineTo(cx - w * 0.28, bottom - h * 0.62);
+      c.lineTo(cx + w * 0.34, bottom - h * 0.52);
+      c.lineTo(cx + w * 0.42, bottom);
+      c.closePath(); c.fill();
+      c.strokeStyle = dim([120, 60, 50], 1.1);
+      c.lineWidth = 1;
+      c.beginPath();
+      c.moveTo(cx - w * 0.2, bottom - h * 0.44);
+      c.lineTo(cx + w * 0.18, bottom - h * 0.36);
+      c.stroke();
+      return;
+    }
+
+    if (kind === 'trap') {
+      c.strokeStyle = dim([168, 62, 52], 1.2);
+      c.lineWidth = Math.max(1, h * 0.6);
+      c.beginPath();
+      c.moveTo(cx - w * 0.45, bottom);
+      c.lineTo(cx + w * 0.45, bottom);
+      c.stroke();
+    }
   }
 
   drawMinimap() {
