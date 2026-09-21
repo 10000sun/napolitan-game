@@ -1,5 +1,6 @@
 // 브라우저 코드 중 DOM 없이 돌아가는 순수 함수들.
 import { nextStep, wanderStep } from '../public/paths.js';
+import { COMBAT, SPECIAL, EVENTS, resolve, available, pickSpecial, attackChance, dodgeChance, monsterSteps } from '../public/encounters.js';
 import { PARTS, BODY_PARTS, pickPart, effectsOf, severityOf, sanitizeParts } from '../public/body.js';
 
 let fail = 0;
@@ -35,6 +36,28 @@ check(pickPart(BODY_PARTS, () => 0) === null, '다 잃었으면 null');
 check(!['오른쪽 팔'].includes(pickPart(['오른쪽 팔'], () => 0.3)), '이미 잃은 부위는 다시 고르지 않는다');
 check(JSON.stringify(sanitizeParts(['혀', '혀', '날개', 3, '오른쪽 눈'])) === '["혀","오른쪽 눈"]', '모르는 이름·중복은 버린다');
 check(JSON.stringify(sanitizeParts('혀')) === '[]', '배열이 아니면 빈 몸');
+
+// ── 조우·전투 ────────────────────────────────────────────
+const two = [[0.6, 'a'], [0.4, 'b']];
+check(resolve(two, () => 0.59) === 'a' && resolve(two, () => 0.6) === 'b', 'resolve: 누적 확률 경계');
+check(resolve([[0.3, 'a']], () => 0.9) === 'a', 'resolve: 합이 모자라면 마지막');
+const none = new Set();
+check(attackChance('pistol', false, none) === 0.8 && attackChance('weapon', true, none) === 0.5 && attackChance('bare', true, none) === 0.3, '권총 80·무기 50·맨손 30');
+check(attackChance('weapon', true, new Set(['noGrab'])) === 0.25, '팔이 없으면 근접 절반');
+check(attackChance('pistol', false, new Set(['noGrab'])) === 0.8, '팔이 없어도 원거리는 그대로');
+check(attackChance('bare', true, new Set(['noGrab', 'blind'])) === 0.075, '눈까지 없으면 또 절반');
+check(dodgeChance(none) === 0.65 && dodgeChance(new Set(['slow'])) === 0.35, '회피 65, 다리가 없으면 35');
+check(monsterSteps(1) === 2 && monsterSteps(0.3) === 1 && monsterSteps(1.5) === 3, '괴물은 두 칸씩, 속도 배율');
+const ctx = (o = {}) => ({ effects: new Set(o.effects || []), corpse: !!o.corpse, weapon: !!o.weapon });
+check(available(SPECIAL.monster, ctx({ effects: ['slow'] })).every((s) => !['backstep', 'roll'].includes(s.id)), '다리가 없으면 뒷걸음·구르기 없음');
+check(available(SPECIAL.monster, ctx()).every((s) => s.id !== 'shield') && available(SPECIAL.monster, ctx({ corpse: true })).some((s) => s.id === 'shield'), '시체가 있어야 시체 방패');
+check(pickSpecial('trap', ctx({ effects: ['slow', 'noGrab'] }), () => 0).id === 'crawl', '조건이 맞는 것 중에서 고른다');
+check(pickSpecial('trap', { effects: new Set(), corpse: false, weapon: false, none: true }, () => 0) !== null, '조건 없는 행동은 늘 후보');
+const allNext = [...SPECIAL.monster, ...SPECIAL.trap, ...Object.values(EVENTS).flatMap((e) => e.choices)]
+  .flatMap((s) => s.outcomes.map(([, r]) => r));
+check(allNext.every((r) => !r.next || EVENTS[r.next]), '모든 후속 이벤트가 존재한다');
+check(allNext.every((r) => !r.losePart || r.losePart === 'random' || ['deaf', 'noTrigger', 'noGrab', 'slow', 'blind'].includes(r.losePart)), '모든 부위 효과가 존재한다');
+check(COMBAT.dodge > COMBAT.bare && SPECIAL.monster.every((s) => s.outcomes[0][0] >= 0.4), '회피가 맨손 공격보다 낫다');
 
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);
