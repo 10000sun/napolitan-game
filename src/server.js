@@ -10,6 +10,7 @@ import { buildWorld, deathCell } from './world.js';
 import { compileEntry, offlineFallback } from './compiler.js';
 import { isConfigured, describeProvider } from './llm.js';
 import { foldEffects, normalizeObject } from './effects.js';
+import { canEnter, bodyOf, saveBodyOnClear, resetBody } from './runs.js';
 import { resolveAsset, imgFor, ITEM_ASSETS, assetDir, LIBRARY_DIR } from './assets.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -41,6 +42,8 @@ app.get('/api/me', (req, res) => {
   res.json({
     user: u ? { id: u.id, username: u.username, avatar: u.avatar, discord_id: u.discord_id } : null,
     devMode: process.env.DEV_NO_AUTH === '1',
+    canEnter: u ? canEnter(u.id) : false,
+    lostParts: u ? bodyOf(u.id) : [],
   });
 });
 
@@ -104,6 +107,7 @@ app.post('/api/guestbook', requireUser, async (req, res) => {
 
 // ── 런 ──────────────────────────────────────────────────────
 app.post('/api/run/start', requireUser, (req, res) => {
+  if (!canEnter(req.user.id)) return res.status(409).json({ error: '문이 열리지 않는다. 다른 누군가가 먼저 들어가야 한다.' });
   const rules = loadAppliedRules();
   const world = buildWorld(rules, q.recentDeaths.all());
   // 모습은 DB 에서 꺼내기만 한다. 여기서는 아무것도 새로 만들지 않는다.
@@ -115,7 +119,7 @@ app.post('/api/run/start', requireUser, (req, res) => {
   // 요구하는 신체 부위는 월드에 담아 그대로 내려보낸다. 엔진이 문을 열지 말지
   // 판단하려면 이 값이 있어야 한다. 규칙이 허락하지 않으면 화면에 이름을
   // 띄우지 않을 뿐이다 (public/game.js 의 checkExit).
-  res.json({ runId: run.id, world });
+  res.json({ runId: run.id, world, body: { lostParts: bodyOf(req.user.id) } });
 });
 
 app.post('/api/run/:id/clear', requireUser, (req, res) => {
@@ -128,6 +132,8 @@ app.post('/api/run/:id/clear', requireUser, (req, res) => {
   if (elapsed < 2000) return res.status(400).json({ error: '그렇게 빨리 나갈 수는 없습니다.' });
 
   q.clearRun.run(Date.now(), run.id);
+  const clearedRules = loadAppliedRules().slice(0, run.rule_count);
+  saveBodyOnClear(req.user.id, req.body?.lostParts, foldEffects(clearedRules.map((r) => r.effects)).healOnExit);
   res.json({ ok: true, canWrite: true, elapsedMs: elapsed });
 });
 
@@ -138,6 +144,7 @@ app.post('/api/run/:id/die', requireUser, (req, res) => {
   const size = foldEffects(loadAppliedRules().slice(0, run.rule_count).map((r) => r.effects)).mazeSize;
   const cell = deathCell(req.body, size);
   q.dieRun.run(Date.now(), cell?.x ?? null, cell?.y ?? null, run.id);
+  resetBody(req.user.id);
   res.json({ ok: true });
 });
 

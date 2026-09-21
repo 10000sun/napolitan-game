@@ -56,6 +56,10 @@ if (!runCols.includes('death_x')) {
   db.exec('ALTER TABLE runs ADD COLUMN death_x INTEGER; ALTER TABLE runs ADD COLUMN death_y INTEGER;');
 }
 
+// 잃은 부위. 다음에 들어올 때도 그대로다.
+const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+if (!userCols.includes('lost_parts')) db.exec("ALTER TABLE users ADD COLUMN lost_parts TEXT NOT NULL DEFAULT '[]'");
+
 export const q = {
   upsertUser: db.prepare(`
     INSERT INTO users (discord_id, username, avatar, created_at) VALUES (?, ?, ?, ?)
@@ -98,6 +102,10 @@ export const q = {
   insertAsset: db.prepare(`
     INSERT OR REPLACE INTO assets (key, tags, source, file, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`),
   generatedSince: db.prepare('SELECT COUNT(*) AS n FROM assets WHERE source = ? AND created_at >= ?'),
+
+  lastRun: db.prepare('SELECT user_id FROM runs ORDER BY id DESC LIMIT 1'),
+  bodyOf: db.prepare('SELECT lost_parts FROM users WHERE id = ?'),
+  setBody: db.prepare('UPDATE users SET lost_parts = ? WHERE id = ?'),
 
   stats: db.prepare(`
     SELECT
