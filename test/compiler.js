@@ -83,6 +83,10 @@ await compileEntry('아무거나', [], initialState());
 const litSys = lastReq.body.system_instruction?.parts[0].text ?? lastReq.body.messages[0].content;   // 이 시점 제공자는 openai
 check(litSys.includes("말 그대로") && litSys.includes("\"where\": \"wall\"") && litSys.includes("maze.layout"), '프롬프트에 말 그대로 원칙과 예시');
 
+check(!litSys.includes('애매하면 전부 여기로'), 'flavor.text 설명이 "애매하면 전부" 로 끌어가지 않는다');
+check(!litSys.includes('"name": "벽에 걸린 웃는 가면"'), '출력 예시가 위치를 이름에 넣지 않는다');
+check(!litSys.includes('{ "type": "entity.monster", "count": 3 }, { "type": "entity.monster_look"'), '괴물 모습 예시가 괴물 수를 절대값으로 덮지 않는다');
+
 // ── object.spawn ────────────────────────────────────────
 const { normalizeObject, foldEffects } = await import('../src/effects.js');
 

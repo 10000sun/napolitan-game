@@ -134,7 +134,7 @@ export const EFFECTS = {
     },
   },
   'flavor.text': {
-    desc: '엔진이 시뮬레이션하지 못하는 내용. 미로 안의 묘사로만 등장한다. 애매하면 전부 여기로 보낸다.',
+    desc: '장소도 대상도 없는 순수한 분위기. 입장할 때 한 줄로만 나온다. 물건·생물·현상은 여기 말고 object.spawn 으로.',
     params: { text: 'string' },
     apply: (s, e) => { if (e.text) s.flavor.push(String(e.text).slice(0, 300)); },
   },

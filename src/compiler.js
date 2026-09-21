@@ -79,7 +79,8 @@ Effect 가 전부이므로, 이렇게 옮긴다.
   "앞에 활이 있으니 챙겨가세요"
     → { "type": "object.spawn", "name": "활", "tags": "bow, wooden", "emoji": "🏹", "count": 1, "where": "entrance", "use": "ranged" }
   "거대한 거미가 돌아다녔으면"
-    → { "type": "entity.monster", "count": 3 }, { "type": "entity.monster_look", "name": "거대한 거미", "tags": "giant spider, hairy", "emoji": "🕷️" }
+    → { "type": "entity.monster", "count": <지금 괴물 수 + 3> }, { "type": "entity.monster_look", "name": "거대한 거미", "tags": "giant spider, hairy", "emoji": "🕷️" }
+      (괴물 수는 현재 상태에 더한다. 이미 괴물이 있으면 줄이지 않는다.)
   "좀 더 넓었으면" (지금 미로가 아닐 때)
     → { "type": "maze.size", "value": 15 }, { "type": "maze.layout", "value": "room" }
 
@@ -118,8 +119,8 @@ effects 는 verdict 가 applied 일 때만 채운다. 그 외에는 반드시 �
   { "type": "item.pistol", "value": true }
   { "type": "item.map_shows", "what": "traps" }
   { "type": "rule.exit_cost", "cost": "random_body_part" }
-  { "type": "object.spawn", "name": "벽에 걸린 웃는 가면", "tags": "mask, smiling, porcelain, cracked", "emoji": "🎭", "count": 1 }
-  { "type": "flavor.text", "text": "벽 어딘가에 눈금이 새겨져 있다." }`;
+  { "type": "object.spawn", "name": "웃는 가면", "tags": "mask, smiling, porcelain, cracked", "emoji": "🎭", "count": 1, "where": "wall" }
+  { "type": "flavor.text", "text": "공기가 조금 무겁다." }`;
 
 /** 앞사람들이 적은 글을 프롬프트용으로 압축한다. */
 function historyBlock(appliedRules) {
