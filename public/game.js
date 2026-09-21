@@ -10,6 +10,7 @@
 import { sprite, drawUncanny, stretchFor, emojiCanvas, decalPixels, filteredCanvas } from '/uncanny.js';
 import { TEX, buildSurfaces } from '/textures.js';
 import { faceOf, raySegment, wallU } from '/geometry.js';
+import { RuleEngine } from '/rules.js';
 import { nextStep, wanderStep } from '/paths.js';
 import { pickPart, effectsOf, severityOf } from '/body.js';
 import { COMBAT, EVENTS, resolve, available, pickSpecial, rollAttack, dodgeChance, monsterSteps, turnCost } from '/encounters.js';
@@ -156,6 +157,9 @@ export class Game {
     window.addEventListener('resize', this._onResize);
     window.addEventListener('keydown', this._onKey);
 
+    this.rules = new RuleEngine(world.rules || []);
+    this.darkTurns = 0;             // 규칙이 불을 끈 남은 턴
+    this.revealTurns = 0;           // 규칙이 지도를 보여 주는 남은 턴
     this.tex = null;                        // 텍스처가 오기 전에는 예전 단색으로 그린다
     buildSurfaces(world.surfaces).then((t) => { this.tex = t; }).catch(() => {});
     this.scaleIdx = 0;
@@ -191,7 +195,7 @@ export class Game {
         if (avg > 28 && this.scaleIdx < SCALES.length - 1) { this.scaleIdx++; this._resize(); }
       }
       this.render();
-      if (this.s.map) this.drawMinimap();
+      if (this.mapKnown || this.revealTurns > 0) this.drawMinimap();
     };
     this.raf = requestAnimationFrame(loop);
     this.pushState();
@@ -241,6 +245,7 @@ export class Game {
     if (this.s.noPain) this.log('여기서는 아파지지 않는다. 그게 더 이상하다.', 'sys');
     if (this.lostBefore.length) this.log(`${this.lostBefore.join(', ')} 없이 들어왔다.`, 'sys');
     this.describe();
+    this.runRules();
   }
 
   /* ── 카메라 ───────────────────────────────────── */
@@ -326,6 +331,10 @@ export class Game {
       });
       return out;
     }
+    for (const { rule, i } of this.rules.buttons(this.reachKeys())) {
+      const o = this.objects.find((x) => !x.taken && x.key === rule.target);
+      if (o) out.push({ id: `rule:${i}`, label: `${o.name}을(를) ${rule.verb}`, kind: 'act' });
+    }
     const a = this.ahead();
     const blocked = this.wall(a.x, a.y);
     const sight = this.monsterInSight();
@@ -405,6 +414,13 @@ export class Game {
       default:
         if (id.startsWith('ev:')) { this.eventChoice(Number(id.slice(3))); break; }
         if (id.startsWith('sp:')) { this.special(id.slice(3)); break; }
+        if (id.startsWith('rule:')) {
+          const i = Number(id.slice(5));
+          const acts = this.rules.act(i);
+          if (acts.length) this.doActions(acts, this.rules.rules[i]?.target);
+          else this.log('아무 일도 일어나지 않았다.');
+          break;
+        }
         return;
     }
 
@@ -415,6 +431,7 @@ export class Game {
       this.pendingTurns = 0;
       for (let i = 0; i < turns && !this.dead; i++) this.endTurn();
     }
+    this.runRules();
     this.pushState();
   }
 
@@ -449,6 +466,8 @@ export class Game {
       this.mapKnown = true;
       this.log('지도를 펼쳤다. 미로가 전부 드러났다.');
     }
+    const got = this.rules.pickup({ pistol: '권총', knife: '칼', map: '지도' }[it.kind]);
+    if (got.length) this.doActions(got);
     this.decalFrame = 0;
   }
 
@@ -468,6 +487,8 @@ export class Game {
       this.meleeName = o.name;
       this.log(`${o.name}을(를) 주웠다. 손에 쥐어 본다.`);
     }
+    const got = this.rules.pickup(o.key);
+    if (got.length) this.doActions(got, o.key);
     this.decalFrame = 0;
   }
 
@@ -506,6 +527,117 @@ export class Game {
     this.audio.blip(60, 0.4, 'sawtooth', 0.1);
     this.log('그것이 무너져 내렸다.');
     if (this.monsters.every((x) => !x.alive)) this.log('더 이상 아무 소리도 들리지 않는다.', 'sys');
+  }
+
+  /** 규칙이 볼 지금 상태. */
+  ruleState() {
+    const live = this.objects.filter((o) => !o.taken && o.where !== 'wall');
+    const here = new Set(live.filter((o) => o.x === this.cx && o.y === this.cy).map((o) => o.key));
+    const near = new Set(live.filter((o) => Math.abs(o.x - this.cx) + Math.abs(o.y - this.cy) <= 1).map((o) => o.key));
+    return { turn: this.turn, here, near, seeMonster: !!this.monsterInSight(), hp: this.hp, atDoor: this.atExit() };
+  }
+
+  /** 발밑·바로 앞(벽 물체는 마주 본 벽면)에 있는 물체 key. 규칙 버튼의 대상. */
+  reachKeys() {
+    const a = this.ahead();
+    const face = (this.facing + 2) % 4;
+    return new Set(this.objects.filter((o) => !o.taken && (
+      (o.where !== 'wall' && ((o.x === this.cx && o.y === this.cy) || (o.x === a.x && o.y === a.y)))
+      || (o.where === 'wall' && o.x === a.x && o.y === a.y && o.face === face))).map((o) => o.key));
+  }
+
+  runRules() {
+    if (this.dead || this.won) return;
+    const acts = this.rules.update(this.ruleState());
+    if (acts.length) this.doActions(acts);
+  }
+
+  /** 규칙의 행동을 적용한다. target: 그 규칙의 대상 물체 key */
+  doActions(acts, target) {
+    for (const a of acts) {
+      if (this.dead || this.won) return;
+      switch (a.act) {
+        case 'say': this.log(a.text, 'sys'); break;
+        case 'hp':
+          if (a.amount > 0) { this.hp = Math.min(this.maxHp, this.hp + a.amount); this.log('몸이 조금 나아졌다.'); }
+          else this.damage(this.s.noPain ? 0 : -a.amount, '어딘가가 욱신거린다.');
+          break;
+        case 'lose_part': this.losePart(a.effect); break;
+        case 'teleport': this.teleport(a.to); break;
+        case 'monster': this.ruleMonsters(a); break;
+        case 'dark': this.darkTurns = Math.max(this.darkTurns, a.turns); this.log('불이 꺼졌다.', 'bad'); break;
+        case 'give': this.ruleGive(a); break;
+        case 'object': this.ruleObject(a.do, target); break;
+        case 'sound':
+          if (!this.fx.has('deaf')) {
+            if (a.kind === 'scream') this.audio.blip(880, 0.5, 'sawtooth', 0.08);
+            else if (a.kind === 'knock') { this.audio.blip(90, 0.08, 'square', 0.1); this.audio.blip(90, 0.08, 'square', 0.1); }
+            else this.audio.noise(0.6, 0.05);
+          }
+          break;
+        case 'reveal':
+          this.revealTurns = Math.max(this.revealTurns, a.turns);
+          this.mm.style.display = '';
+          this.log('머릿속에 이곳의 모양이 떠오른다.');
+          break;
+      }
+    }
+    this.decalFrame = 0;
+    if (!this.dead) this.describe();
+  }
+
+  teleport(to) {
+    let c = null;
+    if (to === 'start') c = { x: 1, y: 1 };
+    else if (to === 'exit' && this.w.exit) c = { x: this.w.exit.x, y: this.w.exit.y };
+    else {
+      const cells = [];
+      for (let y = 0; y < this.size; y++) for (let x = 0; x < this.size; x++) if (!this.wall(x, y) && !this.monsterAt(x, y)) cells.push({ x, y });
+      c = cells[Math.floor(Math.random() * cells.length)];
+    }
+    if (!c) return;
+    this.cx = c.x; this.cy = c.y; this.px = c.x + 0.5; this.py = c.y + 0.5;
+    this.log('눈을 깜빡이자 다른 곳에 서 있다.', 'bad');
+    this.reveal();
+    this.checkTrap();
+  }
+
+  ruleMonsters(a) {
+    const live = this.monsters.filter((m) => m.alive);
+    if (a.do === 'spawn') {
+      const far = [];
+      for (let y = 0; y < this.size; y++) for (let x = 0; x < this.size; x++) {
+        if (!this.wall(x, y) && !this.monsterAt(x, y) && Math.abs(x - this.cx) + Math.abs(y - this.cy) >= 4) far.push({ x, y });
+      }
+      for (let k = 0; k < a.count && far.length; k++) {
+        const c = far.splice(Math.floor(Math.random() * far.length), 1)[0];
+        this.monsters.push({ id: `rm${this.monsters.length}`, x: c.x, y: c.y, alive: true, stun: 0 });
+      }
+      this.log('어딘가에서 무언가 늘어났다.', 'bad');
+    } else if (a.do === 'flee') { for (const m of live) this.fleeMonster(m); this.log('기척들이 멀어진다.'); }
+    else if (a.do === 'stun') { for (const m of live) m.stun = 2; this.log('모든 소리가 멎었다.'); }
+    else { for (const m of live) m.stun = -1; this.log('어둠 속이 술렁인다.', 'bad'); }
+  }
+
+  ruleGive(a) {
+    if (a.item === 'pistol') {
+      this.hasPistol = true; this.rangedName = '권총'; this.rangedIsPistol = true; this.ammo += 12;
+      this.log(`손에 권총이 쥐어져 있다. 탄약 ${this.ammo}발.`);
+    } else if (a.item === 'knife') { this.hasKnife = true; this.meleeName = '칼'; this.log('손에 칼이 쥐어져 있다.'); }
+    else if (a.item === 'map') { this.mapKnown = true; this.mm.style.display = ''; this.log('주머니에 지도가 들어 있다.'); }
+    else { this.ammo += a.count; this.log(`탄약이 ${a.count}발 늘었다.`); }
+  }
+
+  ruleObject(how, target) {
+    for (const o of this.objects.filter((x) => !x.taken && x.key === target)) {
+      if (how === 'vanish') o.taken = true;
+      else if (o.where === 'wall') continue;
+      else if (how === 'follow' || how === 'wander') { o.moves = how; o.pose = 'stand'; }
+      else if (how === 'come') {
+        const spot = DIRS.map(([dx, dy]) => ({ x: this.cx + dx, y: this.cy + dy })).find((c) => !this.wall(c.x, c.y) && !this.monsterAt(c.x, c.y));
+        if (spot) { o.x = spot.x; o.y = spot.y; }
+      }
+    }
   }
 
   encounterCtx() {
@@ -706,6 +838,8 @@ export class Game {
   /* ── 턴 넘기기 ─────────────────────────────────── */
   endTurn() {
     this.turn++;
+    if (this.darkTurns > 0) this.darkTurns--;
+    if (this.revealTurns > 0 && --this.revealTurns === 0 && !this.mapKnown) this.mm.style.display = 'none';
     this.moveMonsters();
     if (this.dead) return;
     this.moveObjects();
@@ -1044,6 +1178,7 @@ export class Game {
 
     this.ctx.putImageData(img, 0, 0);
     this.drawSprites();
+    if (this.darkTurns > 0) { this.ctx.fillStyle = 'rgba(0,0,0,0.92)'; this.ctx.fillRect(0, 0, rw, rh); }
   }
 
   collectSprites() {
@@ -1362,6 +1497,7 @@ export class Game {
   }
 
   drawMinimap() {
+    const known = this.mapKnown || this.revealTurns > 0;
     const c = this.mmCtx, S = this.mm.width;
     const cell = S / this.size;
     c.clearRect(0, 0, S, S);
@@ -1370,22 +1506,22 @@ export class Game {
 
     for (let y = 0; y < this.size; y++) {
       for (let x = 0; x < this.size; x++) {
-        if (!this.seen[y][x] && !this.mapKnown) continue;
+        if (!this.seen[y][x] && !known) continue;
         c.fillStyle = this.grid[y][x] === 1 ? 'rgba(217,210,194,.30)' : 'rgba(217,210,194,.07)';
         c.fillRect(x * cell, y * cell, Math.ceil(cell), Math.ceil(cell));
       }
     }
 
-    if (this.mapKnown && this.s.mapTraps) {
+    if (known && this.s.mapTraps) {
       c.fillStyle = 'rgba(200,70,60,.75)';
       for (const t of this.traps) if (!t.sprung) c.fillRect(t.x * cell, t.y * cell, Math.ceil(cell), Math.ceil(cell));
     }
-    if (this.mapKnown && this.s.mapMonsters) {
+    if (known && this.s.mapMonsters) {
       c.fillStyle = '#e04a3c';
       for (const m of this.monsters) if (m.alive) { c.beginPath(); c.arc(m.x * cell, m.y * cell, Math.max(1.5, cell * 0.3), 0, TAU); c.fill(); }
     }
 
-    if (this.w.exit && (this.mapKnown || this.seen[this.w.exit.y][this.w.exit.x])) {
+    if (this.w.exit && (known || this.seen[this.w.exit.y][this.w.exit.x])) {
       c.fillStyle = '#c8a040';
       c.fillRect(this.w.exit.x * cell, this.w.exit.y * cell, Math.ceil(cell), Math.ceil(cell));
     }
