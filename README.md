@@ -66,11 +66,18 @@ LLM 출력은 **반드시** `sanitize()` 를 통과한다. 모르는 타입은 �
 
 ## 실행
 
+Node.js 20 이상이 필요하다. 없으면 <https://nodejs.org> 에서 LTS 를 설치하고
+**터미널을 새로 연다** (기존 창은 PATH 가 갱신되지 않는다).
+
 ```bash
 npm install
-cp .env.example .env    # 값을 채운다
+cp .env.example .env    # 윈도우: copy .env.example .env
 npm start               # http://localhost:3000
 ```
+
+설정은 전부 `.env` 파일로 읽는다. 셸에 환경변수를 붙이는 방식
+(`DEV_NO_AUTH=1 npm start`) 은 리눅스·macOS 에서만 동작하니,
+운영체제와 무관하게 `.env` 를 고치는 쪽을 쓰는 게 좋다.
 
 `.env` 에 최소한 이것들이 필요하다.
 
@@ -84,13 +91,23 @@ npm start               # http://localhost:3000
 
 ### 로그인 없이 돌려보기
 
+`.env` 에서 이 줄만 바꾼다.
+
+```
+DEV_NO_AUTH=1
+```
+
+그러면 디스코드 로그인 없이 누구나 입장한다. 이어서:
+
 ```bash
-DEV_NO_AUTH=1 npm run seed    # 원작 방명록 16줄을 채운다
-DEV_NO_AUTH=1 npm start
+npm run seed    # 원작 방명록 16줄을 채운다
+npm start
 ```
 
 `npm run seed` 는 원작의 진행(미로 → 괴물 → 권총 → 함정 → 지도 → 신체 부위 →
 무적)을 그대로 넣는다. API 키 없이도 "이미 굴러간 방"을 볼 수 있다.
+시드와 서버는 `.env` 의 같은 `DB_PATH` 를 본다. 방명록을 비우려면 그 DB 파일을
+지우고 다시 `npm run seed` 하면 된다.
 
 ### 테스트
 

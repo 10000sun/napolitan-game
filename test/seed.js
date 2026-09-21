@@ -1,6 +1,8 @@
 // 원작 방명록을 그대로 채워 넣는다.
 // API 키 없이 "이미 굴러간 방"을 보고 싶을 때 쓴다.
-//   DB_PATH=./dev.db node test/seed.js
+//   npm run seed
+// 서버와 같은 DB 를 쓰도록 .env 를 먼저 읽는다.
+import 'dotenv/config';
 import db, { q } from '../src/db.js';
 
 const SCRIPT = [
