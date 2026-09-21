@@ -159,6 +159,7 @@ export class Game {
 
     this.rules = new RuleEngine(world.rules || []);
     this.darkTurns = 0;             // 규칙이 불을 끈 남은 턴
+    this.freshTurn = -1;
     this.revealTurns = 0;           // 규칙이 지도를 보여 주는 남은 턴
     this.tex = null;                        // 텍스처가 오기 전에는 예전 단색으로 그린다
     buildSurfaces(world.surfaces).then((t) => { this.tex = t; }).catch(() => {});
@@ -417,7 +418,7 @@ export class Game {
         if (id.startsWith('rule:')) {
           const i = Number(id.slice(5));
           const acts = this.rules.act(i);
-          if (acts.length) this.doActions(acts, this.rules.rules[i]?.target);
+          if (acts.length) this.doActions(acts, this.rules.rules[i]?.target, true);
           else this.log('아무 일도 일어나지 않았다.');
           break;
         }
@@ -430,8 +431,8 @@ export class Game {
       const turns = turnCost({ moved: this.cx !== before.x || this.cy !== before.y, slow: this.fx.has('slow'), pending: this.pendingTurns });
       this.pendingTurns = 0;
       for (let i = 0; i < turns && !this.dead; i++) this.endTurn();
+      this.runRules();   // 돌아서기(턴 안 씀)로는 규칙을 되풀이할 수 없다
     }
-    this.runRules();
     this.pushState();
   }
 
@@ -467,7 +468,7 @@ export class Game {
       this.log('지도를 펼쳤다. 미로가 전부 드러났다.');
     }
     const got = this.rules.pickup({ pistol: '권총', knife: '칼', map: '지도' }[it.kind]);
-    if (got.length) this.doActions(got);
+    if (got.length) this.doActions(got, undefined, true);
     this.decalFrame = 0;
   }
 
@@ -488,7 +489,7 @@ export class Game {
       this.log(`${o.name}을(를) 주웠다. 손에 쥐어 본다.`);
     }
     const got = this.rules.pickup(o.key);
-    if (got.length) this.doActions(got, o.key);
+    if (got.length) this.doActions(got, o.key, true);
     this.decalFrame = 0;
   }
 
@@ -553,7 +554,8 @@ export class Game {
   }
 
   /** 규칙의 행동을 적용한다. target: 그 규칙의 대상 물체 key */
-  doActions(acts, target) {
+  doActions(acts, target, fresh = false) {
+    if (fresh) this.freshTurn = this.turn;   // 이번 선택이 켠 암전·지도는 이어지는 endTurn 에서 줄지 않는다
     for (const a of acts) {
       if (this.dead || this.won) return;
       switch (a.act) {
@@ -567,7 +569,7 @@ export class Game {
         case 'monster': this.ruleMonsters(a); break;
         case 'dark': this.darkTurns = Math.max(this.darkTurns, a.turns); this.log('불이 꺼졌다.', 'bad'); break;
         case 'give': this.ruleGive(a); break;
-        case 'object': this.ruleObject(a.do, target); break;
+        case 'object': this.ruleObject(a.do, a.target ?? target); break;
         case 'sound':
           if (!this.fx.has('deaf')) {
             if (a.kind === 'scream') this.audio.blip(880, 0.5, 'sawtooth', 0.08);
@@ -590,13 +592,15 @@ export class Game {
     let c = null;
     if (to === 'start') c = { x: 1, y: 1 };
     else if (to === 'exit' && this.w.exit) c = { x: this.w.exit.x, y: this.w.exit.y };
-    else {
+    if (c && this.monsterAt(c.x, c.y)) c = null;   // 괴물이 선 칸이면 아무 데나
+    if (!c) {
       const cells = [];
       for (let y = 0; y < this.size; y++) for (let x = 0; x < this.size; x++) if (!this.wall(x, y) && !this.monsterAt(x, y)) cells.push({ x, y });
       c = cells[Math.floor(Math.random() * cells.length)];
     }
     if (!c) return;
     this.cx = c.x; this.cy = c.y; this.px = c.x + 0.5; this.py = c.y + 0.5;
+    this.event = null;
     this.log('눈을 깜빡이자 다른 곳에 서 있다.', 'bad');
     this.reveal();
     this.checkTrap();
@@ -837,9 +841,11 @@ export class Game {
 
   /* ── 턴 넘기기 ─────────────────────────────────── */
   endTurn() {
+    const fresh = this.freshTurn === this.turn;
+    this.freshTurn = -1;
     this.turn++;
-    if (this.darkTurns > 0) this.darkTurns--;
-    if (this.revealTurns > 0 && --this.revealTurns === 0 && !this.mapKnown) this.mm.style.display = 'none';
+    if (!fresh && this.darkTurns > 0) this.darkTurns--;
+    if (!fresh && this.revealTurns > 0 && --this.revealTurns === 0 && !this.mapKnown) this.mm.style.display = 'none';
     this.moveMonsters();
     if (this.dead) return;
     this.moveObjects();

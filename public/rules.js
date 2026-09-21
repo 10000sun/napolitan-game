@@ -12,7 +12,8 @@ export class RuleEngine {
     this.rules = rules;
     this.rng = rng;
     this.spent = new Set();     // once 로 써 버린 규칙
-    this.was = new Map();       // 새로 참이 될 때를 알기 위한 지난 값 (every 는 마지막으로 발동한 turn)
+    this.was = new Map();       // 새로 참이 될 때를 알기 위한 지난 값
+    this.lastTurn = 0;          // every: 지난 update 의 turn. 한 번에 여러 턴이 지나도 배수를 넘었으면 발동
   }
 
   roll(i) {
@@ -34,19 +35,19 @@ export class RuleEngine {
     return this.rules.flatMap((r, i) => (r.on === 'pickup' && r.target === key ? this.roll(i) : []));
   }
 
-  /** 상태를 보고 새로 참이 된 조건의 행동을 모은다. */
+  /** 상태를 보고 새로 참이 된 조건의 행동을 모은다. 행동마다 자기 규칙의 target 이 붙는다. */
   update(s) {
     const out = [];
+    const fire = (i) => out.push(...this.roll(i).map((a) => ({ ...a, target: this.rules[i].target })));
+    const prev = this.lastTurn;
+    this.lastTurn = s.turn;
     this.rules.forEach((r, i) => {
       if (r.on === 'every') {
-        if (s.turn > 0 && s.turn % r.n === 0 && this.was.get(i) !== s.turn) {
-          this.was.set(i, s.turn);
-          out.push(...this.roll(i));
-        }
+        if (Math.floor(s.turn / r.n) > Math.floor(prev / r.n)) fire(i);
         return;
       }
       if (r.on === 'start') {
-        if (!this.was.get(i)) { this.was.set(i, true); out.push(...this.roll(i)); }
+        if (!this.was.get(i)) { this.was.set(i, true); fire(i); }
         return;
       }
       if (!EDGE[r.on]) return;
@@ -55,7 +56,7 @@ export class RuleEngine {
         : r.on === 'see_monster' ? !!s.seeMonster
         : r.on === 'hurt' ? s.hp <= r.n
         : !!s.atDoor;
-      if (now && !this.was.get(i)) out.push(...this.roll(i));
+      if (now && !this.was.get(i)) fire(i);
       this.was.set(i, now);
     });
     return out;

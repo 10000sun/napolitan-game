@@ -136,5 +136,10 @@ check(eng.pickup('권총').length === 1 && eng.pickup('칼').length === 0, 'pick
 eng = new RuleEngine([{ on: 'door', chance: 1, once: false, do: [{ act: 'teleport', to: 'start' }] }], () => 0);
 check(eng.update(S({ atDoor: true })).length === 1 && eng.update(S({ atDoor: true })).length === 0, '행동이 부른 상태 변화는 다음 update 에서만 다시 본다 (사슬이 한 번에 돌지 않는다)');
 
+eng = new RuleEngine([{ on: 'every', n: 3, chance: 1, once: false, do: say('e') }], () => 0);
+check([1, 4, 7, 8].map((turn) => eng.update(S({ turn })).length).join('') === '0110', 'every: 턴이 3씩 뛰어도 배수를 넘으면 발동');
+eng = new RuleEngine([{ on: 'enter', target: '시체', chance: 1, once: false, do: [{ act: 'object', do: 'vanish' }] }], () => 0);
+check(eng.update(S({ here: new Set(['시체']) }))[0]?.target === '시체', '자동 발동한 행동도 자기 규칙의 대상을 안다');
+
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);
