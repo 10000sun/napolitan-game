@@ -10,6 +10,7 @@
 
 - LLM·이미지 생성 호출은 **방명록 기입 시점에만**. 플레이 시작 시 외부 호출 0회.
 - 같은 방명록이면 같은 오브젝트가 같은 자리에 놓인다 (시드 결정론 유지).
+  죽은 사람의 시체는 미로 구조를 바꾸지 않고 그 위에 얹힌다 (아래 "죽은 자리의 시체").
 - 기입 응답은 이미지 생성을 기다리지 않는다.
 - LLM 출력은 반드시 `sanitize()` 를 통과한다.
 
@@ -91,8 +92,29 @@ CREATE TABLE IF NOT EXISTS assets (
 - `npm run tag-assets` (`scripts/tag-assets.js`): `library.json` 에 없는 파일을 찾아 파일명에서 태그 초안을 뽑아 추가한다 (`_`, `-`, 숫자 기준 분리). LLM 없음. 사람이 검토·수정.
 - 권장: 불쾌·기괴한 에셋 위주로 선별해 넣는다.
 
+### 줍는 아이템의 바닥 모습
+- 권총·칼·지도도 에셋으로 그린다. 고정 key `item:pistol` / `item:knife` / `item:map`, 태그는 코드에 고정
+  (`pistol, handgun, rusty` / `knife, kitchen knife, bloody` / `map, paper, crumpled`).
+- 서버 시작 시 이 셋의 `assets` 행이 없으면 `resolveAsset` 을 한 번 백그라운드로 돌린다 (플레이 시점 호출 아님).
+- 런 시작 응답의 `items` 각각에 `img` 부착. 없으면 `null`.
+- 대체 표시는 이모지가 아니라 **지금 `paintSprite()` 가 그리는 도형**. 기괴 보정은 이미지일 때만 적용한다
+  (기존 도형은 이미 화풍에 맞춰져 있다).
+
+### 죽은 자리의 시체
+- 죽은 런(`died_at`)은 죽은 칸을 남긴다. `runs` 에 `death_x INTEGER, death_y INTEGER` 컬럼 추가
+  (기존 DB 는 `ALTER TABLE` 을 `PRAGMA table_info` 로 확인 후 실행).
+- `ui.js` 의 `/die` 요청 body 에 `{ x, y }` (현재 칸). 서버는 정수이고 그 런의 미로 크기 안일 때만 저장, 아니면 좌표 없이 사망만 기록.
+- `buildWorld(rules, deaths)`: `deaths` = 최근 사망 30건의 `{x, y}` (`died_at DESC`).
+  - 기존 `take()` 배치가 **끝난 뒤** 추가한다. 그래야 사망 기록이 괴물·함정·오브젝트 위치를 바꾸지 않는다.
+  - 그 칸이 벽이거나 범위 밖이면 BFS 로 가장 가까운 바닥 칸으로 옮긴다. 시작 칸·출구 칸이면 버린다.
+  - 결과는 기존 `corpses` 배열에 합친다. 엔진에서는 일반 시체와 똑같다 (줍기·미끼 가능).
+- 줍기는 이미 클라이언트 런 상태(`taken`)에만 남는다. 서버는 매 런마다 월드를 새로 만들므로
+  다음 사람에게는 그대로 보인다. 추가 작업 없음.
+- 누가 죽었는지는 노출하지 않는다 (방명록 작성자를 숨기는 원칙과 같다).
+
 ### `src/world.js`
 - 기존 몬스터·함정·시체 뒤에서 `take(count)` 로 오브젝트 위치 결정. `objects: [{ id, key, name, emoji, x, y }]`.
+- 그 뒤 사망 시체 추가 (위 섹션).
 
 ### `src/server.js`
 - 기입 후 `effects` 의 `object.spawn` 마다 `resolveAsset(obj).catch(log)` (await 없음).
@@ -129,5 +151,6 @@ IMAGE_DAILY_LIMIT=20         # 넘으면 그날은 pollinations
 
 - `test/compiler.js`: `object.spawn` 정규화 (name 길이, 태그 정규화·상한, emoji, count clamp, 빈 name 제거).
 - `test/assets.js` (신규): 매칭 임계값 경계, 캐시 hit 시 생성기 미호출, 일일 한도 초과 시 pollinations 전환, 전부 실패 시 `failed`, 같은 key 동시 호출 시 생성 1회. 생성기는 가짜 함수 주입, DB 는 임시 파일.
-- `test/replay.js`: 같은 방명록 → 같은 오브젝트 위치.
+- `test/replay.js`: 같은 방명록 → 같은 오브젝트 위치. 사망 기록을 넣어도 괴물·함정·오브젝트 위치 불변,
+  벽 칸 사망 좌표는 가장 가까운 바닥으로 이동, 31건째부터는 무시.
 - 배경 제거·기괴 보정은 브라우저로 육안 확인.
