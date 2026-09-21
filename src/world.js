@@ -80,6 +80,32 @@ function bfsDistances(grid, sx, sy) {
   return dist;
 }
 
+/** (x, y) 에서 가장 가까운 바닥 칸. 범위 밖 좌표는 가장자리로 당겨서 찾는다. */
+function nearestFloor(grid, x, y) {
+  const n = grid.length;
+  const sx = Math.max(0, Math.min(n - 1, x)), sy = Math.max(0, Math.min(n - 1, y));
+  const seen = new Set([`${sx},${sy}`]);
+  const q = [[sx, sy]];
+  for (let i = 0; i < q.length; i++) {
+    const [cx, cy] = q[i];
+    if (grid[cy][cx] === 0) return { x: cx, y: cy };
+    for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+      const nx = cx + dx, ny = cy + dy, k = `${nx},${ny}`;
+      if (nx < 0 || ny < 0 || nx >= n || ny >= n || seen.has(k)) continue;
+      seen.add(k);
+      q.push([nx, ny]);
+    }
+  }
+  return null;
+}
+
+/** 클라이언트가 보낸 사망 좌표. 믿을 수 있는 모양일 때만. */
+export function deathCell(body, size) {
+  const x = body?.x, y = body?.y;
+  const ok = Number.isInteger(x) && Number.isInteger(y) && x >= 0 && y >= 0 && x < size && y < size;
+  return ok ? { x, y } : null;
+}
+
 const BODY_PARTS = [
   '머리카락 한 움큼', '왼쪽 새끼손가락', '오른쪽 검지손가락', '왼쪽 손목', '오른쪽 팔',
   '왼쪽 발목', '오른쪽 다리', '왼쪽 귀', '앞니 두 개', '오른쪽 눈', '혀', '신장 하나',
@@ -88,8 +114,9 @@ const BODY_PARTS = [
 /**
  * 반영된 규칙 목록 → 플레이 가능한 월드.
  * @param {Array<{id:number, effects:Array}>} appliedRules 시간순
+ * @param {Array<{x:number, y:number}>} deaths 최근 사망 칸 (최신순). 미로 구조에는 영향 없음
  */
-export function buildWorld(appliedRules) {
+export function buildWorld(appliedRules, deaths = []) {
   const state = foldEffects(appliedRules.map((r) => r.effects));
 
   // 시드는 반영된 규칙 id 들로만 결정된다 → 방명록이 그대로면 미로도 그대로.
@@ -133,6 +160,20 @@ export function buildWorld(appliedRules) {
   const traps = take(state.traps);
   const corpses = take(state.corpses);
 
+  const objects = [];
+  for (const o of state.objects) {
+    take(o.count).forEach((c, i) => {
+      objects.push({ id: `o:${o.key}:${i}`, key: o.key, name: o.name, emoji: o.emoji, x: c.x, y: c.y });
+    });
+  }
+
+  // 여기서 죽은 사람들. 모든 take() 가 끝난 뒤에 얹어야 사망 기록이 다른 배치를 흔들지 않는다.
+  for (const d of deaths.slice(0, 30)) {
+    const c = nearestFloor(grid, d.x, d.y);
+    if (!c || (c.x === 1 && c.y === 1) || (exit && c.x === exit.x && c.y === exit.y)) continue;
+    corpses.push(c);
+  }
+
   const items = [];
   // 권총·탄창·지도·칼은 "공책 앞", 즉 입구 근처에 놓인다.
   if (state.pistol) items.push({ id: 'pistol', kind: 'pistol', x: 1.5, y: 2.5 });
@@ -154,6 +195,7 @@ export function buildWorld(appliedRules) {
     traps,
     corpses,
     items,
+    objects,
     demandedPart,
     state,
     ruleCount: appliedRules.length,
