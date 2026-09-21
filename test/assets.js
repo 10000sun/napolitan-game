@@ -75,6 +75,11 @@ const [a, b] = await Promise.all([
 ]);
 check(calls.length === 1 && a.file === b.file, '같은 key 를 동시에 요청해도 생성은 한 번');
 
+process.env.IMAGE_PROVIDER = 'none';
+r = await resolveAsset(obj('안만듦', ['nothing']), { generators: gens, library: [] });
+check(r.status === 'failed' && !q.assetByKey.get('안만듦'), 'IMAGE_PROVIDER=none 이면 실패를 남기지 않는다 (나중에 켜면 다시 시도)');
+process.env.IMAGE_PROVIDER = 'gemini';
+
 // ── imgFor ──────────────────────────────────────────────
 check(imgFor('웃는 가면') === '/lib/mask.png', 'ready 면 URL');
 check(imgFor('손') === null && imgFor('없는것') === null, 'failed·없음이면 null');

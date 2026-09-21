@@ -118,6 +118,32 @@ Ollama      OPENAI_BASE_URL=http://localhost:11434/v1        OPENAI_MODEL=llama3
 통과한다. 모르는 타입은 사라지고 범위를 벗어난 값은 잘리므로, 모델이 헛소리를
 해도 엔진이 받는 것은 항상 정해진 Effect 뿐이다.
 
+### 방명록 물체의 모습
+
+"웃는 가면이 걸려 있었으면" 처럼 물체가 적히면, 판정이 `object.spawn` 으로 옮기고
+서버가 **뒤에서** 그 모습을 확보한다. 기입 응답은 기다리지 않는다.
+
+1. 같은 물체를 이미 봤으면 그대로 쓴다
+2. `assets/library/` 와 전에 만든 것들 중 태그가 절반 이상 겹치면 그걸 쓴다
+3. 없으면 만든다 — Gemini (하루 `IMAGE_DAILY_LIMIT` 장) → 넘으면 Pollinations
+4. 그래도 안 되면 화면에는 이모지가 대신 선다
+
+토큰은 판정 한 번에 오브젝트당 30~40 토큰이 늘어나는 정도다 (기존 대비 약 5%).
+실제 비용은 이미지 생성 횟수가 정한다.
+
+| `IMAGE_PROVIDER` | 비용 | 비고 |
+|---|---|---|
+| `gemini` | 장당 약 $0.034 (`gemini-3.1-flash-lite-image`, 1K). **무료 한도 없음** | `GEMINI_API_KEY` 를 같이 쓴다. 한도 20장이면 하루 최대 약 $0.7 |
+| `pollinations` | 키 필요 (`POLLINATIONS_API_KEY`) | 익명 사용이 막혔다. 키가 없으면 건너뛴다 |
+| `none` | 0 | 만들지 않는다. 라이브러리 매칭과 이모지만 |
+
+(2026-09 기준 가격. 바뀔 수 있으니 [Gemini 가격표](https://ai.google.dev/gemini-api/docs/pricing) 를 확인할 것.)
+
+라이브러리에 에셋을 넣으려면 `assets/library/` 에 파일을 넣고 `npm run tag-assets`
+후 `assets/library.json` 의 태그를 다듬는다. 기괴하고 불쾌한 것 위주로 고를 것.
+생성한 이미지는 `data/assets/` 에 쌓인다. 어떤 물체의 모습을 다시 만들고 싶으면
+DB 의 `assets` 테이블에서 그 행을 지우면 다음에 그 물체가 적힐 때 다시 만든다.
+
 ### 로그인 없이 돌려보기
 
 `.env` 에서 이 줄만 바꾼다.
@@ -179,11 +205,13 @@ src/
   compiler.js  방명록 글 → 판정 + Effect. 여기서만 LLM 을 부른다
   world.js     규칙 목록 → 결정론적 미로. 시드는 규칙 id 에서만 나온다
   db.js        SQLite. entries 는 append-only
+  assets.js    방명록 물체의 모습. 캐시 → 태그 매칭 → 이미지 생성
   auth.js      디스코드 OAuth2 + 길드 멤버십 확인
   server.js    HTTP
 public/
   game.js      1인칭 레이캐스팅 엔진 (의존성 없음)
   ui.js        현관 · 방명록 · 게임 화면 연결
+  uncanny.js   물체를 "뭔가 틀리게" 그린다. 배경 제거·색 빼기·늘이기
 ```
 
 ## 알아둘 것

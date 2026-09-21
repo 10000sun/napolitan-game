@@ -50,6 +50,12 @@ CREATE TABLE IF NOT EXISTS assets (
 );
 `);
 
+// 죽은 자리. 기존 DB 에도 컬럼을 붙인다.
+const runCols = db.prepare('PRAGMA table_info(runs)').all().map((c) => c.name);
+if (!runCols.includes('death_x')) {
+  db.exec('ALTER TABLE runs ADD COLUMN death_x INTEGER; ALTER TABLE runs ADD COLUMN death_y INTEGER;');
+}
+
 export const q = {
   upsertUser: db.prepare(`
     INSERT INTO users (discord_id, username, avatar, created_at) VALUES (?, ?, ?, ?)
@@ -70,7 +76,14 @@ export const q = {
     INSERT INTO runs (user_id, seed, rule_count, started_at) VALUES (?, ?, ?, ?) RETURNING *`),
   runById: db.prepare('SELECT * FROM runs WHERE id = ?'),
   clearRun: db.prepare('UPDATE runs SET cleared_at = ? WHERE id = ? AND cleared_at IS NULL'),
-  dieRun: db.prepare('UPDATE runs SET died_at = ? WHERE id = ? AND cleared_at IS NULL AND died_at IS NULL'),
+  dieRun: db.prepare(`
+    UPDATE runs SET died_at = ?, death_x = ?, death_y = ?
+    WHERE id = ? AND cleared_at IS NULL AND died_at IS NULL`),
+  // 누가 죽었는지는 꺼내지 않는다. 자리만.
+  recentDeaths: db.prepare(`
+    SELECT death_x AS x, death_y AS y FROM runs
+    WHERE died_at IS NOT NULL AND death_x IS NOT NULL
+    ORDER BY died_at DESC LIMIT 30`),
   useRunEntry: db.prepare('UPDATE runs SET entry_used = 1 WHERE id = ?'),
   // 클리어했고 아직 방명록을 쓰지 않은 가장 최근 런 (= 기입 권한)
   pendingWrite: db.prepare(`

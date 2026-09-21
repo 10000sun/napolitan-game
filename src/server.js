@@ -6,16 +6,19 @@ import { fileURLToPath } from 'node:url';
 
 import { q, loadAppliedRules } from './db.js';
 import { currentUser, requireUser, setSession, authUrl, exchangeCode } from './auth.js';
-import { buildWorld } from './world.js';
+import { buildWorld, deathCell } from './world.js';
 import { compileEntry, offlineFallback } from './compiler.js';
 import { isConfigured, describeProvider } from './llm.js';
-import { foldEffects } from './effects.js';
+import { foldEffects, normalizeObject } from './effects.js';
+import { resolveAsset, imgFor, ITEM_ASSETS, assetDir, LIBRARY_DIR } from './assets.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json({ limit: '32kb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use('/obj', express.static(assetDir()));
+app.use('/lib', express.static(LIBRARY_DIR));
 
 // ── 인증 ────────────────────────────────────────────────────
 app.get('/auth/login', (_req, res) => res.redirect(authUrl()));
@@ -84,6 +87,13 @@ app.post('/api/guestbook', requireUser, async (req, res) => {
   );
   q.useRunEntry.run(run.id);
 
+  // 물체의 모습은 뒤에서 확보한다. 응답은 기다리지 않는다.
+  for (const e of verdict.effects) {
+    if (e.type !== 'object.spawn') continue;
+    const o = normalizeObject(e);
+    if (o) resolveAsset(o).catch((err) => console.error('[asset]', err.message));
+  }
+
   res.json({
     entry: { ...entry, username: req.user.username },
     verdict: verdict.verdict,
@@ -95,7 +105,10 @@ app.post('/api/guestbook', requireUser, async (req, res) => {
 // ── 런 ──────────────────────────────────────────────────────
 app.post('/api/run/start', requireUser, (req, res) => {
   const rules = loadAppliedRules();
-  const world = buildWorld(rules);
+  const world = buildWorld(rules, q.recentDeaths.all());
+  // 모습은 DB 에서 꺼내기만 한다. 여기서는 아무것도 새로 만들지 않는다.
+  world.objects = world.objects.map((o) => ({ ...o, img: imgFor(o.key) }));
+  world.items = world.items.map((it) => ({ ...it, img: ITEM_ASSETS[it.kind] ? imgFor(ITEM_ASSETS[it.kind].key) : null }));
   const run = q.insertRun.get(req.user.id, world.seed, rules.length, Date.now());
 
   // 요구하는 신체 부위는 월드에 담아 그대로 내려보낸다. 엔진이 문을 열지 말지
@@ -120,7 +133,10 @@ app.post('/api/run/:id/clear', requireUser, (req, res) => {
 app.post('/api/run/:id/die', requireUser, (req, res) => {
   const run = q.runById.get(Number(req.params.id));
   if (!run || run.user_id !== req.user.id) return res.status(404).json({ error: '그런 기록이 없습니다.' });
-  q.dieRun.run(Date.now(), run.id);
+  // 그 런이 걷던 미로 크기 안의 칸만 믿는다.
+  const size = foldEffects(loadAppliedRules().slice(0, run.rule_count).map((r) => r.effects)).mazeSize;
+  const cell = deathCell(req.body, size);
+  q.dieRun.run(Date.now(), cell?.x ?? null, cell?.y ?? null, run.id);
   res.json({ ok: true });
 });
 
@@ -132,5 +148,9 @@ app.listen(port, () => {
   if (process.env.DEV_NO_AUTH === '1') console.log('  ⚠ DEV_NO_AUTH=1 — 디스코드 로그인 없이 누구나 입장합니다.');
   if (isConfigured()) console.log(`  판정: ${describeProvider()}`);
   else console.log('  ⚠ LLM 키 없음 — 방명록이 세계를 바꾸지 않습니다. (.env 를 보세요)');
+  // 줍는 아이템의 바닥 모습. 이미 있으면 DB 조회로 끝난다.
+  for (const it of Object.values(ITEM_ASSETS)) {
+    resolveAsset(it).catch((err) => console.error('[asset]', err.message));
+  }
   console.log('');
 });

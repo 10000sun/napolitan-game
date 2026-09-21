@@ -145,8 +145,12 @@ async function doResolve(obj, { generators = GENERATORS, library = loadLibrary()
   const m = matchTags(obj.tags, pool);
   if (m.score >= MATCH_MIN) return save('match', m.entry.file, 'ready');
 
+  // 만들 생각이 없는 설정이면 실패를 남기지 않는다. 나중에 켜면 그때 만든다.
+  const order = generatorOrder(now);
+  if (!order.length) return { key: obj.key, tags: obj.tags.join(','), source: 'none', file: null, status: 'failed', created_at: now };
+
   const prompt = `${(obj.tags.length ? obj.tags : [obj.name]).join(', ')}, ${STYLE}`;
-  for (const name of generatorOrder(now)) {
+  for (const name of order) {
     try {
       if (!generators[name]) throw new Error('생성기가 없습니다');
       const img = await generators[name](prompt);
