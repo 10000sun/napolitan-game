@@ -106,11 +106,6 @@ export const EFFECTS = {
     params: { value: 'boolean' },
     apply: (s, e) => { s.healOnExit = !!e.value; },
   },
-  'rule.hunger': {
-    desc: '배고픔. 제한 시간이 생긴다. 초 단위, 0 이면 제한 없음. 0~3600.',
-    params: { seconds: 'number' },
-    apply: (s, e) => { s.hunger = clamp(e.seconds, 0, 3600); },
-  },
   'rule.no_exit': {
     desc: '출구가 사라진다. 아무도 나갈 수 없게 된다. 극단적인 효과라 거의 반영되지 않는다.',
     params: { value: 'boolean' },
@@ -206,7 +201,6 @@ export function initialState() {
     exitCost: 'none',
     exitCostKnown: false,
     healOnExit: false,
-    hunger: 0,
     noExit: false,
     layout: null,
     monsterLook: null,

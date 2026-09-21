@@ -133,7 +133,7 @@ Ollama      OPENAI_BASE_URL=http://localhost:11434/v1        OPENAI_MODEL=llama3
 
 | `IMAGE_PROVIDER` | 비용 | 비고 |
 |---|---|---|
-| `gemini` | 장당 약 $0.034 (`gemini-3.1-flash-lite-image`, 1K). **무료 한도 없음** | `GEMINI_API_KEY` 를 같이 쓴다. 한도 20장이면 하루 최대 약 $0.7 |
+| `gemini` | 장당 약 $0.034 (`gemini-3.1-flash-lite-image`, 1K). **무료 한도 없음** | `GEMINI_API_KEY` 를 같이 쓴다. 한도 5장이면 하루 최대 약 $0.17 (약 230원) |
 | `pollinations` | 키 필요 (`POLLINATIONS_API_KEY`) | 익명 사용이 막혔다. 키가 없으면 건너뛴다 |
 | `none` | 0 | 만들지 않는다. 라이브러리 매칭과 이모지만 |
 

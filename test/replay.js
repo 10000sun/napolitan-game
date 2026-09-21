@@ -112,11 +112,14 @@ for (const bad of [{ x: '3', y: 4 }, { x: -1, y: 4 }, { x: 3.5, y: 4 }, { x: 15,
   check(deathCell(bad, 15) === null, `이상한 좌표는 버린다 ${JSON.stringify(bad)}`);
 }
 
+check(!('hunger' in foldEffects([[{ type: 'rule.hunger', seconds: 60 }]])), '배고픔은 더 이상 없다 (옛 규칙은 버린다)');
+
 // ── 말 그대로: 배치 ──────────────────────────────────────
 const snap = JSON.parse(fs.readFileSync(new URL('./fixtures/replay-final.json', import.meta.url)));
 const now = buildWorld(rules);
 const { layout: _l, monsterLook: _m, objects: _o1, ...nowOld } = now;
 const { objects: _o2, ...snapOld } = snap;
+delete snapOld.state.hunger;
 check(JSON.stringify(nowOld) === JSON.stringify(snapOld), '원작 방명록의 월드는 변경 전과 같다');
 check(now.layout === 'maze', '크기 15 에 레이아웃이 없으면 미로');
 

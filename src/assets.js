@@ -118,7 +118,7 @@ function generatorOrder(now) {
   const provider = (process.env.IMAGE_PROVIDER || 'gemini').toLowerCase();
   if (provider === 'none') return [];
   if (provider === 'pollinations') return ['pollinations'];
-  const limit = Number(process.env.IMAGE_DAILY_LIMIT ?? 20);
+  const limit = Number(process.env.IMAGE_DAILY_LIMIT ?? 5);
   const midnight = new Date(now);
   midnight.setHours(0, 0, 0, 0);
   const used = q.generatedSince.get('gemini', midnight.getTime()).n;
