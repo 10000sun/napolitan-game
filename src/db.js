@@ -38,6 +38,16 @@ CREATE TABLE IF NOT EXISTS runs (
 
 CREATE INDEX IF NOT EXISTS idx_entries_created ON entries(created_at);
 CREATE INDEX IF NOT EXISTS idx_runs_user ON runs(user_id);
+
+-- 방명록 물체의 모습. 한 번 확보하면 같은 물체에 계속 쓴다.
+CREATE TABLE IF NOT EXISTS assets (
+  key         TEXT PRIMARY KEY,
+  tags        TEXT NOT NULL,        -- 쉼표 구분
+  source      TEXT NOT NULL,        -- match | gemini | pollinations | none
+  file        TEXT,                 -- /obj/... 또는 /lib/...
+  status      TEXT NOT NULL,        -- ready | failed
+  created_at  INTEGER NOT NULL
+);
 `);
 
 export const q = {
@@ -69,6 +79,12 @@ export const q = {
   activeRun: db.prepare(`
     SELECT * FROM runs WHERE user_id = ? AND cleared_at IS NULL AND died_at IS NULL
     ORDER BY id DESC LIMIT 1`),
+
+  assetByKey: db.prepare('SELECT * FROM assets WHERE key = ?'),
+  readyAssets: db.prepare("SELECT tags, file FROM assets WHERE status = 'ready'"),
+  insertAsset: db.prepare(`
+    INSERT OR REPLACE INTO assets (key, tags, source, file, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`),
+  generatedSince: db.prepare('SELECT COUNT(*) AS n FROM assets WHERE source = ? AND created_at >= ?'),
 
   stats: db.prepare(`
     SELECT
