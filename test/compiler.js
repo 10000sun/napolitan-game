@@ -149,5 +149,25 @@ st = foldEffects([[{ type: 'surface.look', surface: 'wall', name: '살점', colo
 check(st.surfaces.wall.name === '곰팡이' && !('surface' in st.surfaces.wall), '표면은 마지막 것이 덮는다');
 check(JSON.stringify(foldEffects([]).surfaces) === '{}', '기본 표면은 비어 있다');
 
+// ── 조합형 규칙 ──────────────────────────────────────────
+const { normalizeRule } = await import('../src/effects.js');
+let ru = normalizeRule({ on: 'ACT', target: ' 고양이 ', verb: '쓰다듬는다', do: [{ act: 'hp', amount: 999 }, { act: 'say', text: '가르랑' }] });
+check(ru.on === 'act' && ru.target === '고양이' && ru.verb === '쓰다듬는다' && ru.chance === 1 && ru.once === false, '버튼 규칙');
+check(ru.do[0].amount === 50 && ru.do[1].text === '가르랑', '행동 범위를 자른다');
+check(normalizeRule({ on: 'act', target: '고양이', do: [{ act: 'say', text: 'x' }] }).verb === '만진다', '동사가 없으면 만진다');
+check(normalizeRule({ on: 'act', do: [{ act: 'say', text: 'x' }] }) === null, '대상이 필요한데 없으면 버린다');
+check(normalizeRule({ on: 'fly', do: [{ act: 'say', text: 'x' }] }) === null, '모르는 조건은 버린다');
+check(normalizeRule({ on: 'start', do: [{ act: 'explode' }, { act: 'hp', amount: 0 }] }) === null, '행동이 하나도 안 남으면 버린다');
+check(normalizeRule({ on: 'start', do: Array(9).fill({ act: 'say', text: 'x' }) }).do.length === 4, '행동은 4개까지');
+check(normalizeRule({ on: 'every', do: [{ act: 'dark', turns: 99 }] }).n === 5 && normalizeRule({ on: 'every', n: 99, do: [{ act: 'dark', turns: 99 }] }).do[0].turns === 5, 'every 기본 5, 암전 5턴까지');
+check(normalizeRule({ on: 'every', n: 99, do: [{ act: 'say', text: 'x' }] }).n === 50, 'every 최대 50');
+check(normalizeRule({ on: 'start', chance: 0, do: [{ act: 'say', text: 'x' }] }).chance === 0.05 && normalizeRule({ on: 'start', chance: 'abc', do: [{ act: 'say', text: 'x' }] }).chance === 0.05, '확률은 0.05 이상');
+const mm = normalizeRule({ on: 'start', do: [{ act: 'monster', do: 'spawn', count: 9 }, { act: 'give', item: 'ammo' }, { act: 'teleport', to: 'moon' }, { act: 'lose_part', effect: 'wings' }] }).do;
+check(mm[0].count === 3 && mm[1].count === 6 && mm[2].to === 'random' && mm[3].effect === 'random', '소환 3·탄약 기본 6·모르는 값은 기본값');
+check(normalizeRule({ on: 'start', do: [{ act: 'lose_part', effect: 'NOGRAB' }] }).do[0].effect === 'noGrab', '부위 효과 이름은 대소문자 무시');
+st = foldEffects(Array.from({ length: 25 }, (_, i) => [{ type: 'rule.when', on: 'every', n: i + 1, do: [{ act: 'say', text: `${i}` }] }]));
+check(st.rules.length === 20 && st.rules[0].n === 1, '규칙은 먼저 적힌 20개까지');
+check(JSON.stringify(foldEffects([]).rules) === '[]', '기본 규칙은 없다');
+
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);

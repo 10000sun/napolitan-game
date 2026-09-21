@@ -121,6 +121,7 @@ const { layout: _l, monsterLook: _m, objects: _o1, surfaces: _s1, ...nowOld } = 
 const { objects: _o2, ...snapOld } = snap;
 delete snapOld.state.hunger;
 delete nowOld.state.surfaces;
+delete nowOld.state.rules;
 check(JSON.stringify(nowOld) === JSON.stringify(snapOld), '원작 방명록의 월드는 변경 전과 같다');
 check(now.layout === 'maze', '크기 15 에 레이아웃이 없으면 미로');
 

@@ -140,6 +140,22 @@ export const EFFECTS = {
       s.surfaces[surface] = look;
     },
   },
+  'rule.when': {
+    desc: '"~하면 ~된다" 형태의 소원. 조건(on)과 행동(do)의 조합. '
+      + "on: 'act'(대상에 새 버튼, verb 는 버튼 동사) | 'enter'(대상 칸에 들어감) | 'near'(대상 1칸 안) | 'every'(n턴마다) "
+      + "| 'see_monster' | 'pickup'(대상을 주움) | 'hurt'(체력 n 이하) | 'start'(들어오자마자) | 'door'(출구 앞). "
+      + 'target: 대상 물체 이름(act·enter·near·pickup 에 필수, 권총·칼·지도도 된다). chance: 0.05~1. once: 한 판에 한 번. '
+      + "do: 최대 4개 — { act:'say', text } | { act:'hp', amount:-50~50 } | { act:'lose_part', effect } "
+      + "| { act:'teleport', to:'random'|'start'|'exit' } | { act:'monster', do:'flee'|'stun'|'enrage'|'spawn', count:1~3 } "
+      + "| { act:'dark', turns:1~5 } | { act:'give', item:'ammo'|'pistol'|'knife'|'map', count } "
+      + "| { act:'object', do:'vanish'|'follow'|'wander'|'come' } | { act:'sound', kind:'scream'|'whisper'|'knock' } "
+      + "| { act:'reveal', turns:1~10 }. 방 전체에 규칙은 20개까지.",
+    params: { on: 'string', target: 'string', verb: 'string', n: 'number', chance: 'number', once: 'boolean', do: 'array' },
+    apply: (s, e) => {
+      const r = normalizeRule(e);
+      if (r && s.rules.length < 20) s.rules.push(r);
+    },
+  },
   'flavor.text': {
     desc: '장소도 대상도 없는 순수한 분위기. 입장할 때 한 줄로만 나온다. 물건·생물·현상은 여기 말고 object.spawn 으로.',
     params: { text: 'string' },
@@ -230,6 +246,7 @@ export function initialState() {
     layout: null,
     monsterLook: null,
     surfaces: {},
+    rules: [],
     objects: [],
     flavor: [],
   };
@@ -260,4 +277,64 @@ export function catalogForPrompt() {
       return `- ${type} { ${params} } — ${d.desc}`;
     })
     .join('\n');
+}
+
+const ONS = ['act', 'enter', 'near', 'every', 'see_monster', 'pickup', 'hurt', 'start', 'door'];
+const NEEDS_TARGET = ['act', 'enter', 'near', 'pickup'];
+const EFFECT_KEYS = ['deaf', 'noTrigger', 'noGrab', 'slow', 'blind'];
+const oneOf = (v, allowed) => {
+  const s = String(v ?? '').trim().toLowerCase();
+  return allowed.includes(s) ? s : null;
+};
+
+/** 규칙의 행동 하나. 모르는 행동이면 null, 값은 범위로 자른다. */
+export function normalizeAction(a) {
+  switch (oneOf(a?.act, ['say', 'hp', 'lose_part', 'teleport', 'monster', 'dark', 'give', 'object', 'sound', 'reveal'])) {
+    case 'say': {
+      const text = String(a.text ?? '').trim().slice(0, 120);
+      return text ? { act: 'say', text } : null;
+    }
+    case 'hp': {
+      const amount = Math.max(-50, Math.min(50, Math.round(Number(a.amount) || 0)));
+      return amount ? { act: 'hp', amount } : null;
+    }
+    case 'lose_part': {
+      const want = String(a.effect ?? '').trim().toLowerCase();
+      return { act: 'lose_part', effect: EFFECT_KEYS.find((x) => x.toLowerCase() === want) || 'random' };
+    }
+    case 'teleport': return { act: 'teleport', to: pick(a.to, ['random', 'start', 'exit']) };
+    case 'monster': {
+      const d = pick(a.do, ['flee', 'stun', 'enrage', 'spawn']);
+      return d === 'spawn' ? { act: 'monster', do: d, count: clamp(a.count ?? 1, 1, 3) } : { act: 'monster', do: d };
+    }
+    case 'dark': return { act: 'dark', turns: clamp(a.turns ?? 2, 1, 5) };
+    case 'give': {
+      const item = pick(a.item, ['ammo', 'pistol', 'knife', 'map']);
+      return item === 'ammo' ? { act: 'give', item, count: clamp(a.count ?? 6, 1, 30) } : { act: 'give', item };
+    }
+    case 'object': return { act: 'object', do: pick(a.do, ['vanish', 'follow', 'wander', 'come']) };
+    case 'sound': return { act: 'sound', kind: pick(a.kind, ['scream', 'whisper', 'knock']) };
+    case 'reveal': return { act: 'reveal', turns: clamp(a.turns ?? 3, 1, 10) };
+    default: return null;
+  }
+}
+
+/** "~하면 ~된다". 조건을 모르거나, 대상이 필요한데 없거나, 행동이 하나도 안 남으면 null. */
+export function normalizeRule(e) {
+  const on = oneOf(e?.on, ONS);
+  if (!on) return null;
+  const needs = NEEDS_TARGET.includes(on);
+  const target = needs ? objectKey(e.target ?? '') : null;
+  if (needs && !target) return null;
+  const actions = (Array.isArray(e.do) ? e.do : []).map(normalizeAction).filter(Boolean).slice(0, 4);
+  if (!actions.length) return null;
+  return {
+    on,
+    target,
+    verb: on === 'act' ? (String(e.verb ?? '').trim().slice(0, 20) || '만진다') : null,
+    n: on === 'every' ? clamp(e.n ?? 5, 1, 50) : on === 'hurt' ? clamp(e.n ?? 30, 1, 99) : null,
+    chance: Math.max(0.05, Math.min(1, Number(e.chance ?? 1) || 0)),
+    once: !!e.once,
+    do: actions,
+  };
 }
