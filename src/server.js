@@ -9,7 +9,7 @@ import { currentUser, requireUser, setSession, authUrl, exchangeCode } from './a
 import { buildWorld, deathCell } from './world.js';
 import { compileEntry, offlineFallback } from './compiler.js';
 import { isConfigured, describeProvider } from './llm.js';
-import { foldEffects, normalizeObject } from './effects.js';
+import { foldEffects, normalizeObject, normalizeSurface } from './effects.js';
 import { canEnter, bodyOf, saveBodyOnClear, resetBody, isOpen } from './runs.js';
 import { resolveAsset, imgFor, ITEM_ASSETS, assetDir, LIBRARY_DIR } from './assets.js';
 
@@ -20,6 +20,7 @@ app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/obj', express.static(assetDir()));
 app.use('/lib', express.static(LIBRARY_DIR));
+app.use('/tex', express.static(path.join(__dirname, '..', 'assets', 'textures')));
 
 // ── 인증 ────────────────────────────────────────────────────
 app.get('/auth/login', (_req, res) => res.redirect(authUrl()));
@@ -92,6 +93,11 @@ app.post('/api/guestbook', requireUser, async (req, res) => {
 
   // 물체와 괴물의 모습은 뒤에서 확보한다. 응답은 기다리지 않는다.
   for (const e of verdict.effects) {
+    if (e.type === 'surface.look') {
+      const sf = normalizeSurface(e);
+      if (sf) resolveAsset({ ...sf, kind: 'texture' }).catch((err) => console.error('[asset]', err.message));
+      continue;
+    }
     if (e.type !== 'object.spawn' && e.type !== 'entity.monster_look') continue;
     const o = normalizeObject(e);
     if (o) resolveAsset(o).catch((err) => console.error('[asset]', err.message));
@@ -113,6 +119,7 @@ app.post('/api/run/start', requireUser, (req, res) => {
   // 모습은 DB 에서 꺼내기만 한다. 여기서는 아무것도 새로 만들지 않는다.
   world.objects = world.objects.map((o) => ({ ...o, img: imgFor(o.key) }));
   world.items = world.items.map((it) => ({ ...it, img: ITEM_ASSETS[it.kind] ? imgFor(ITEM_ASSETS[it.kind].key) : null }));
+  world.surfaces = Object.fromEntries(Object.entries(world.surfaces || {}).map(([s, l]) => [s, { ...l, img: imgFor(l.key) }]));
   if (world.monsterLook) world.monsterLook = { ...world.monsterLook, img: imgFor(world.monsterLook.key) };
   const run = q.insertRun.get(req.user.id, world.seed, rules.length, Date.now());
 

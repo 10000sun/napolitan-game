@@ -95,6 +95,14 @@ r = await resolveAsset(obj('반반', ['half']), {
 });
 check(r.status === 'failed' && q.assetByKey.get('반반')?.status === 'failed', '실제로 호출해서 실패했으면 남긴다');
 
+// ── 텍스처는 텍스처끼리만 ────────────────────────────────
+calls.length = 0;
+r = await resolveAsset({ key: 'tex:wall:점액', name: '점액', tags: ['slime', 'green'], kind: 'texture' }, { generators: gens, library: [], now: Date.now() + 6 * 86_400_000 });
+check(r.source === 'gemini' && r.kind === 'texture', '같은 태그의 물체 에셋이 있어도 텍스처는 따로 만든다');
+check(calls[0]?.prompt.includes('seamless tileable texture'), '텍스처 프롬프트');
+r = await resolveAsset(obj('초록 점액 덩어리', ['slime', 'green']), { generators: gens, library: [], now: Date.now() + 6 * 86_400_000 });
+check(r.source === 'match' && r.file === q.assetByKey.get('slime').file, '물체는 물체끼리 매칭된다');
+
 // ── imgFor ──────────────────────────────────────────────
 check(imgFor('웃는 가면') === '/lib/mask.png', 'ready 면 URL');
 check(imgFor('손') === null && imgFor('없는것') === null, 'failed·없음이면 null');

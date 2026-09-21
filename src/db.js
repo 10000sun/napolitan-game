@@ -56,6 +56,10 @@ if (!runCols.includes('death_x')) {
   db.exec('ALTER TABLE runs ADD COLUMN death_x INTEGER; ALTER TABLE runs ADD COLUMN death_y INTEGER;');
 }
 
+// 에셋 종류. 물체와 표면 질감은 서로 매칭되지 않는다.
+const assetCols = db.prepare('PRAGMA table_info(assets)').all().map((c) => c.name);
+if (!assetCols.includes('kind')) db.exec("ALTER TABLE assets ADD COLUMN kind TEXT NOT NULL DEFAULT 'object'");
+
 // 잃은 부위. 다음에 들어올 때도 그대로다.
 const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
 if (!userCols.includes('lost_parts')) db.exec("ALTER TABLE users ADD COLUMN lost_parts TEXT NOT NULL DEFAULT '[]'");
@@ -98,9 +102,9 @@ export const q = {
     ORDER BY id DESC LIMIT 1`),
 
   assetByKey: db.prepare('SELECT * FROM assets WHERE key = ?'),
-  readyAssets: db.prepare("SELECT tags, file FROM assets WHERE status = 'ready'"),
+  readyAssets: db.prepare("SELECT tags, file FROM assets WHERE status = 'ready' AND kind = ?"),
   insertAsset: db.prepare(`
-    INSERT OR REPLACE INTO assets (key, tags, source, file, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`),
+    INSERT OR REPLACE INTO assets (key, tags, source, file, status, created_at, kind) VALUES (?, ?, ?, ?, ?, ?, ?)`),
   generatedSince: db.prepare('SELECT COUNT(*) AS n FROM assets WHERE source = ? AND created_at >= ?'),
 
   lastRun: db.prepare('SELECT user_id FROM runs ORDER BY id DESC LIMIT 1'),

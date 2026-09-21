@@ -23,6 +23,8 @@ const MATCH_MIN = 0.5;
 export const STYLE = 'single object, centered, isolated on plain pure black background, uncanny, '
   + 'subtly wrong proportions, desaturated, grainy found photograph, unsettling, no text';
 
+export const TEXTURE_STYLE = 'seamless tileable texture, flat even lighting, top-down photo, no objects, no text, grimy, stained';
+
 /** 줍는 아이템의 바닥 모습. 태그는 고정. */
 export const ITEM_ASSETS = {
   pistol: { key: 'item:pistol', name: '권총', tags: ['pistol', 'handgun', 'rusty'] },
@@ -136,20 +138,22 @@ export function resolveAsset(obj, opts = {}) {
 }
 
 async function doResolve(obj, { generators = GENERATORS, library = loadLibrary(), now = Date.now(), dir = assetDir() } = {}) {
+  const kind = obj.kind || 'object';
   const hit = q.assetByKey.get(obj.key);
   if (hit) return hit;
 
   const save = (source, file, status) => {
-    q.insertAsset.run(obj.key, obj.tags.join(','), source, file, status, now);
+    q.insertAsset.run(obj.key, obj.tags.join(','), source, file, status, now, kind);
     return q.assetByKey.get(obj.key);
   };
 
-  const pool = [...library, ...q.readyAssets.all().map((r) => ({ tags: r.tags.split(','), file: r.file }))];
+  const pool = [...library.filter((l) => (l.kind || 'object') === kind),
+    ...q.readyAssets.all(kind).map((r) => ({ tags: r.tags.split(','), file: r.file }))];
   const m = matchTags(obj.tags, pool);
   if (m.score >= MATCH_MIN) return save('match', m.entry.file, 'ready');
 
   const order = generatorOrder(now);
-  const prompt = `${(obj.tags.length ? obj.tags : [obj.name]).join(', ')}, ${STYLE}`;
+  const prompt = `${(obj.tags.length ? obj.tags : [obj.name]).join(', ')}, ${kind === 'texture' ? TEXTURE_STYLE : STYLE}`;
   let tried = false;
   for (const name of order) {
     try {
@@ -166,7 +170,7 @@ async function doResolve(obj, { generators = GENERATORS, library = loadLibrary()
   }
   // 실제로 만들어 보다 실패했을 때만 남긴다. 키가 없거나, 만들지 않는 설정이거나,
   // 한도 때문에 건너뛰었다면 그건 이 물체 탓이 아니다. 다음에 다시 시도한다.
-  if (!tried) return { key: obj.key, tags: obj.tags.join(','), source: 'none', file: null, status: 'failed', created_at: now };
+  if (!tried) return { key: obj.key, tags: obj.tags.join(','), source: 'none', file: null, status: 'failed', created_at: now, kind };
   return save('none', null, 'failed');
 }
 
