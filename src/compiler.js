@@ -61,9 +61,11 @@ Effect 가 전부이므로, 이렇게 옮긴다.
 1. 기존 Effect 로 되는 것은 그 Effect 로. (권총·칼·지도·시체·괴물 수·함정·미로 크기 등)
 2. 물건·생물·현상은 object.spawn 으로. 위치·쓰임·움직임·문장 단서를 빠짐없이 옮긴다.
    - "벽에/걸려/붙어" → where: wall, "앞에/입구에/들어가자마자" → where: entrance, "출구에/문 앞에" → where: exit
+   - "바닥에 놓인/떨어진/깔린/누운" → pose: lie
    - 쏘거나 던지는 도구 → use: ranged, 휘두르는 도구 → use: melee
    - "따라온다" → moves: follow, "돌아다닌다" → moves: wander
 3. 적대적인 생물은 entity.monster 로 수를, entity.monster_look 으로 생김새를.
+3-1. 벽·바닥·천장·문의 질감은 surface.look 으로.
 4. 엔진이 흉내낼 수 없는 현상·세계 규칙은 그것을 보여 주는 물체 + desc 로 번역한다.
 5. flavor.text 는 장소도 대상도 없는 순수한 분위기일 때만 쓴다.
 
@@ -83,6 +85,8 @@ Effect 가 전부이므로, 이렇게 옮긴다.
       (괴물 수는 현재 상태에 더한다. 이미 괴물이 있으면 줄이지 않는다.)
   "좀 더 넓었으면" (지금 미로가 아닐 때)
     → { "type": "maze.size", "value": 15 }, { "type": "maze.layout", "value": "room" }
+  "벽이 살점 같았으면"
+    → { "type": "surface.look", "surface": "wall", "name": "살점", "tags": "raw flesh, wet, veins", "color": "#8a3b3b" }
 
 ${catalogForPrompt()}
 

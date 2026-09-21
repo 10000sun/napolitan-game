@@ -135,5 +135,19 @@ st = foldEffects([[{ type: 'entity.monster_look', name: '거대한 거미', tags
 check(st.monsterLook?.key === '거대한 거미' && st.monsterLook.tags[0] === 'spider', '괴물 모습');
 check(foldEffects([]).monsterLook === null, '기본 괴물 모습은 없음');
 
+// ── 자세·표면 ────────────────────────────────────────────
+const { normalizeSurface } = await import('../src/effects.js');
+check(normalizeObject({ name: '종이', pose: 'LIE' }).pose === 'lie', '바닥에 눕힌다');
+check(normalizeObject({ name: '종이' }).pose === 'stand', '기본은 서 있다');
+check(normalizeObject({ name: '가면', where: 'wall', pose: 'lie' }).pose === 'stand', '벽 물체는 눕지 않는다');
+check(normalizeObject({ name: '고양이', moves: 'follow', pose: 'lie' }).pose === 'stand', '움직이는 것은 눕지 않는다');
+let sf = normalizeSurface({ surface: 'WALL', name: '살점', tags: 'raw flesh, wet', color: '#8A3B3B' });
+check(sf.surface === 'wall' && sf.key === 'tex:wall:살점' && sf.color === '#8a3b3b', '표면 질감');
+check(normalizeSurface({ surface: 'sky', name: 'x' }) === null, '모르는 표면은 버린다');
+check(normalizeSurface({ surface: 'floor', name: 'x', color: 'red' }).color === null && normalizeSurface({ surface: 'floor', name: 'x', color: '#12' }).color === null, '색 형식이 틀리면 색만 버린다');
+st = foldEffects([[{ type: 'surface.look', surface: 'wall', name: '살점', color: '#8a3b3b' }], [{ type: 'surface.look', surface: 'wall', name: '곰팡이' }]]);
+check(st.surfaces.wall.name === '곰팡이' && !('surface' in st.surfaces.wall), '표면은 마지막 것이 덮는다');
+check(JSON.stringify(foldEffects([]).surfaces) === '{}', '기본 표면은 비어 있다');
+
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);

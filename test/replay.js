@@ -117,9 +117,10 @@ check(!('hunger' in foldEffects([[{ type: 'rule.hunger', seconds: 60 }]])), '배
 // ── 말 그대로: 배치 ──────────────────────────────────────
 const snap = JSON.parse(fs.readFileSync(new URL('./fixtures/replay-final.json', import.meta.url)));
 const now = buildWorld(rules);
-const { layout: _l, monsterLook: _m, objects: _o1, ...nowOld } = now;
+const { layout: _l, monsterLook: _m, objects: _o1, surfaces: _s1, ...nowOld } = now;
 const { objects: _o2, ...snapOld } = snap;
 delete snapOld.state.hunger;
+delete nowOld.state.surfaces;
 check(JSON.stringify(nowOld) === JSON.stringify(snapOld), '원작 방명록의 월드는 변경 전과 같다');
 check(now.layout === 'maze', '크기 15 에 레이아웃이 없으면 미로');
 
@@ -154,6 +155,9 @@ check(JSON.stringify(buildWorld(placeRules)) === JSON.stringify(pw), '같은 방
 
 check(JSON.stringify(buildWorld(placeRules, [{ x: 1, y: 2 }, { x: 2, y: 1 }, { x: 3, y: 1 }]).objects) === JSON.stringify(pw.objects),
   '사망 기록은 입구·출구·벽 물체 위치도 바꾸지 않는다');
+
+check(buildWorld([{ id: 1, effects: [{ type: 'object.spawn', name: '종이', pose: 'lie' }] }]).objects[0].pose === 'lie', '월드에 자세가 실린다');
+check(JSON.stringify(buildWorld([{ id: 1, effects: [{ type: 'surface.look', surface: 'floor', name: '피웅덩이', color: '#551111' }] }]).surfaces?.floor?.color) === '"#551111"', '월드에 표면이 실린다');
 
 const crowd = buildWorld([{ id: 1, effects: Array.from({ length: 30 }, (_, i) => ({ type: 'object.spawn', name: `e${i}`, where: 'entrance', count: 5 })) }]);
 check(crowd.objects.length === 7, '빈 칸이 모자라면 놓을 수 있는 만큼만 (5×5 빈 방: 바닥 9 - 시작 - 출구)');

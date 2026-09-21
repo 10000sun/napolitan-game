@@ -111,7 +111,7 @@ const WALL_DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];   // 0 동 1 남 2 서 3 �
 
 function objectOut(o, c, i) {
   const out = { id: `o:${o.key}:${i}`, key: o.key, name: o.name, emoji: o.emoji, x: c.x, y: c.y,
-    where: o.where, use: o.use, moves: o.moves, desc: o.desc };
+    where: o.where, use: o.use, moves: o.moves, desc: o.desc, pose: o.pose };
   if (c.face !== undefined) out.face = c.face;
   return out;
 }
@@ -251,6 +251,7 @@ export function buildWorld(appliedRules, deaths = []) {
     objects,
     layout,
     monsterLook: state.monsterLook,
+    surfaces: state.surfaces,
     demandedPart,
     state,
     ruleCount: appliedRules.length,

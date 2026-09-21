@@ -118,14 +118,26 @@ export const EFFECTS = {
       + "where: 'anywhere' | 'entrance'(앞에·입구에) | 'exit'(출구에·문 앞에) | 'wall'(벽에·걸려·붙어). "
       + "use: 'none' | 'ranged'(쏘거나 던지는 도구) | 'melee'(휘두르는 도구). "
       + "moves: 'still' | 'wander'(돌아다닌다) | 'follow'(따라온다). "
-      + 'desc: 가까이 가면 보이는 한 문장. 현상·규칙은 여기에 말 그대로 쓴다.',
-    params: { name: 'string', tags: 'string', emoji: 'string', count: 'number', where: 'string', use: 'string', moves: 'string', desc: 'string' },
+      + 'desc: 가까이 가면 보이는 한 문장. 현상·규칙은 여기에 말 그대로 쓴다. '
+      + "pose: 'stand' | 'lie'(바닥에 놓인·떨어진·깔린·누운).",
+    params: { name: 'string', tags: 'string', emoji: 'string', count: 'number', where: 'string', use: 'string', moves: 'string', desc: 'string', pose: 'string' },
     apply: (s, e) => {
       const o = normalizeObject(e);
       if (!o) return;
       const i = s.objects.findIndex((x) => x.key === o.key);
       if (i >= 0) s.objects[i] = o;
       else if (s.objects.length < 30) s.objects.push(o);
+    },
+  },
+  'surface.look': {
+    desc: "벽·바닥·천장·문의 질감이 바뀌기를 바랄 때. surface: 'wall' | 'floor' | 'ceil' | 'door'. "
+      + 'name: 짧은 한국어 이름. tags: 질감을 설명하는 영어 단어 3~6개. color: 그 질감의 대표색 #rrggbb.',
+    params: { surface: 'string', name: 'string', tags: 'string', color: 'string' },
+    apply: (s, e) => {
+      const sf = normalizeSurface(e);
+      if (!sf) return;
+      const { surface, ...look } = sf;
+      s.surfaces[surface] = look;
     },
   },
   'flavor.text': {
@@ -179,7 +191,20 @@ export function normalizeObject(e) {
     use: wall ? 'none' : pick(e.use, ['none', 'ranged', 'melee']),
     moves: wall ? 'still' : pick(e.moves, ['still', 'wander', 'follow']),
     desc: String(e.desc ?? '').trim().slice(0, 120),
+    pose: (wall || pick(e.moves, ['still', 'wander', 'follow']) !== 'still') ? 'stand' : pick(e.pose, ['stand', 'lie']),
   };
+}
+
+/** 표면 질감. 모르는 표면이면 null, 색 형식이 틀리면 색만 버린다. */
+export function normalizeSurface(e) {
+  const surface = String(e?.surface ?? '').trim().toLowerCase();
+  if (!['wall', 'floor', 'ceil', 'door'].includes(surface)) return null;
+  const name = String(e?.name ?? '').trim().slice(0, 40);
+  if (!name) return null;
+  const color = /^#[0-9a-f]{6}$/i.test(String(e.color ?? '').trim()) ? String(e.color).trim().toLowerCase() : null;
+  let tags = normalizeTags(e.tags);
+  if (!tags.length) tags = normalizeTags(name);
+  return { surface, key: `tex:${surface}:${objectKey(name)}`, name, tags, color };
 }
 
 /** 최초의 방. 아무것도 없는 빈 공간에 탈출구만 덩그러니. */
@@ -204,6 +229,7 @@ export function initialState() {
     noExit: false,
     layout: null,
     monsterLook: null,
+    surfaces: {},
     objects: [],
     flavor: [],
   };
