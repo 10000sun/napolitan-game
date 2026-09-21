@@ -1,7 +1,7 @@
 // 브라우저 코드 중 DOM 없이 돌아가는 순수 함수들.
 import { nextStep, wanderStep } from '../public/paths.js';
 import { faceOf, raySegment } from '../public/geometry.js';
-import { TEX, noise, procedural, tintGrime, hexToRgb } from '../public/textures.js';
+import { TEX, noise, procedural, tintGrime, hexToRgb, wallpaper } from '../public/textures.js';
 import { COMBAT, SPECIAL, EVENTS, resolve, available, pickSpecial, attackChance, dodgeChance, monsterSteps, turnCost } from '../public/encounters.js';
 import { PARTS, BODY_PARTS, pickPart, effectsOf, severityOf, sanitizeParts } from '../public/body.js';
 
@@ -87,6 +87,12 @@ check(JSON.stringify(hexToRgb('#8a3b3b')) === '[138,59,59]' && hexToRgb('red') =
 const white = new Uint8ClampedArray(TEX * TEX * 4).fill(255);
 tintGrime(white, [216, 199, 122], 0);
 check(white[0] === 216 && white[1] === 199 && white[2] === 122, '톤을 곱한다');
+
+const plain = wallpaper(new Uint8ClampedArray(TEX * TEX * 4).fill(200));
+check(plain[(TEX * (TEX - 4)) * 4] < plain[(TEX * 10) * 4] * 0.7, '벽 사진 아래에 걸레받이');
+let stripe = 0;
+for (let x = 0; x < TEX; x++) stripe = Math.max(stripe, Math.abs(plain[(TEX * 10 + x) * 4] - plain[(TEX * 10) * 4]));
+check(stripe > 5, '벽 사진에 세로 줄무늬');
 
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);

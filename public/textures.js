@@ -82,6 +82,19 @@ export function tintGrime(px, rgb, amount = 0.45) {
   return px;
 }
 
+/** 벽 사진에 세로 줄무늬 벽지와 걸레받이를 덧입힌다. 무늬 없는 벽은 백룸이 아니다. */
+export function wallpaper(px) {
+  for (let y = 0; y < TEX; y++) {
+    for (let x = 0; x < TEX; x++) {
+      let k = 0.9 + 0.1 * Math.sin((x / TEX) * Math.PI * 2 * 12);
+      if (y / TEX > 0.88) k *= 0.55;
+      const i = (y * TEX + x) * 4;
+      px[i] *= k; px[i + 1] *= k; px[i + 2] *= k;
+    }
+  }
+  return px;
+}
+
 /* ── 브라우저 전용 ─────────────────────────────────── */
 
 const loadImg = (url) => new Promise((ok) => {
@@ -118,6 +131,7 @@ export async function buildSurfaces(surfaces = {}) {
     if (custom) { out[s] = pixelsOf(custom, null, 'grayscale(.4) sepia(.35) contrast(1.15)'); continue; }
     const photo = (s === 'ceil' || look?.color) ? null : await loadImg(`/tex/${s}.jpg`);
     out[s] = photo ? tintGrime(pixelsOf(photo), TONE[s], s === 'door' ? 0.1 : 0.45) : procedural(s, look?.color);
+    if (photo && s === 'wall') wallpaper(out[s]);
   }
   const panel = await loadImg('/tex/ceil.jpg');
   out.light = panel ? pixelsOf(panel, [8, 8, 72, 72]) : procedural('light');

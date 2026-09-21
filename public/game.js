@@ -1053,18 +1053,27 @@ export class Game {
     for (const b of this.baits) {
       out.push({ kind: 'corpse', x: b.x + 0.5, y: b.y + 0.5, h: 0.3, w: 0.85, ground: true });
     }
-    for (const it of this.items) {
-      if (it.taken) continue;
-      out.push({ kind: it.kind, ref: it, x: it.x + 0.5, y: it.y + 0.5, h: 0.22, w: 0.4, ground: true });
-    }
-    for (const o of this.objects) {
-      if (o.taken) continue;
-      if (o.where === 'wall') {
-        // 벽면 바로 앞, 눈높이보다 조금 아래에 붙여 세운다.
-        const [dx, dy] = DIRS[o.face];
-        out.push({ kind: 'object', ref: o, x: o.x + 0.5 + dx * 0.55, y: o.y + 0.5 + dy * 0.55, h: 0.4, w: 0.45, lift: 0.28 });
-      } else {
-        out.push({ kind: 'object', ref: o, x: o.x + 0.5 + o.dx, y: o.y + 0.5 + o.dy, h: 0.7, w: 0.6, ground: true });
+    if (!this.tex) {
+      // 텍스처가 오기 전에는 벽·바닥 그림을 그릴 수 없으니 예전처럼 세워 둔다.
+      for (const it of this.items) {
+        if (it.taken) continue;
+        out.push({ kind: it.kind, ref: it, x: it.x + 0.5, y: it.y + 0.5, h: 0.22, w: 0.4, ground: true });
+      }
+      for (const o of this.objects) {
+        if (o.taken) continue;
+        if (o.where === 'wall') {
+          const [dx, dy] = DIRS[o.face];
+          out.push({ kind: 'object', ref: o, x: o.x + 0.5 + dx * 0.55, y: o.y + 0.5 + dy * 0.55, h: 0.4, w: 0.45, lift: 0.28 });
+        } else {
+          out.push({ kind: 'object', ref: o, x: o.x + 0.5 + o.dx, y: o.y + 0.5 + o.dy, h: 0.7, w: 0.6, ground: true });
+        }
+      }
+    } else {
+      // 줍는 아이템·벽 물체·누운 물체는 render() 가 벽과 바닥에 그린다.
+      for (const o of this.objects) {
+        if (o.taken || o.where === 'wall' || o.pose === 'lie') continue;
+        if (o.moves === 'still') out.push({ kind: 'plane', ref: o, x: o.x + 0.5, y: o.y + 0.5 });
+        else out.push({ kind: 'object', ref: o, x: o.x + 0.5 + o.dx, y: o.y + 0.5 + o.dy, h: 0.7, w: 0.6, ground: true });
       }
     }
     for (const t of this.traps) {
@@ -1094,6 +1103,7 @@ export class Game {
       .sort((a, b) => b.d2 - a.d2);
 
     for (const s of sprites) {
+      if (s.kind === 'plane') { this.drawPlane(s.ref); continue; }
       const sx = s.x - this.px, sy = s.y - this.py;
       const tx = invDet * (dirY * sx - dirX * sy);
       const ty = invDet * (-planeY * sx + planeX * sy);
@@ -1141,6 +1151,38 @@ export class Game {
       }
       o.wasVisible = o.visible;
     }
+  }
+
+  /** 방향이 고정된 판. 옆에서 보면 얇아지고, 나를 쳐다보지 않는다. */
+  drawPlane(o) {
+    const { rw, rh } = this;
+    const c = this.ctx;
+    const dirX = Math.cos(this.angle), dirY = Math.sin(this.angle);
+    const planeX = -dirY * this.fov, planeY = dirX * this.fov;
+    const th = (o.stretch - 1.15) / 0.2 * Math.PI;           // id 로 정해진 각도 (0 ~ π)
+    const hw = 0.32;
+    const ax = o.x + 0.5 - Math.cos(th) * hw, ay = o.y + 0.5 - Math.sin(th) * hw;
+    const bx = o.x + 0.5 + Math.cos(th) * hw, by = o.y + 0.5 + Math.sin(th) * hw;
+    const src = sprite(o.img) || emojiCanvas(o.emoji);
+    const blind = this.fx.has('blind');
+    c.save();
+    let drawn = false;
+    for (let x = 0; x < rw; x++) {
+      const camX = (2 * x) / rw - 1;
+      const hit = raySegment(this.px, this.py, dirX + planeX * camX, dirY + planeY * camX, ax, ay, bx, by);
+      if (!hit || hit.t >= this.zBuf[x] || hit.t < 0.2 || (blind && hit.t > 1.5)) continue;
+      if (!drawn) {
+        const fog = Math.max(0.16, Math.min(1, 5.2 / hit.t));
+        c.filter = `grayscale(.7) sepia(.45) contrast(1.3) brightness(${fog.toFixed(2)})`;
+        drawn = true;
+      }
+      const unit = rh / hit.t;
+      const bottom = rh / 2 + unit / 2;
+      const top = bottom - unit * 0.7 * o.stretch;
+      c.drawImage(src, Math.min(src.width - 1, (hit.s * src.width) | 0), 0, 1, src.height, x, top, 1, bottom - top);
+    }
+    c.restore();
+    o.visible = drawn;
   }
 
   paintSprite(kind, cx, top, bottom, w, fog, dist, ref) {
@@ -1209,6 +1251,18 @@ export class Game {
     }
 
     if (kind === 'door') {
+      if (this.tex?.doorCanvas) {
+        const x = cx - w / 2, y = bottom - h;
+        c.save();
+        c.filter = `brightness(${(fog * 0.9).toFixed(2)})`;
+        c.drawImage(this.tex.doorCanvas, x, y, w, h);
+        c.restore();
+        c.fillStyle = `rgba(214,186,108,${0.4 + fog * 0.5})`;
+        c.fillRect(x + w * 0.76, y + h * 0.52, Math.max(1.2, w * 0.05), Math.max(1.2, h * 0.04));   // 손잡이
+        c.fillStyle = `rgba(230,210,140,${0.08 + fog * 0.12})`;
+        c.fillRect(x, bottom - Math.max(1, h * 0.012), w, Math.max(1, h * 0.012));                   // 문틈 빛
+        return;
+      }
       const dw = w, dh = h;
       const x = cx - dw / 2, y = bottom - dh;
       // 문틈으로 새어 나오는 빛
