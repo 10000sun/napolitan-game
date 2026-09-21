@@ -1,5 +1,7 @@
 // 브라우저 코드 중 DOM 없이 돌아가는 순수 함수들.
 import { nextStep, wanderStep } from '../public/paths.js';
+import { faceOf, raySegment } from '../public/geometry.js';
+import { TEX, noise, procedural, tintGrime, hexToRgb } from '../public/textures.js';
 import { COMBAT, SPECIAL, EVENTS, resolve, available, pickSpecial, attackChance, dodgeChance, monsterSteps, turnCost } from '../public/encounters.js';
 import { PARTS, BODY_PARTS, pickPart, effectsOf, severityOf, sanitizeParts } from '../public/body.js';
 
@@ -62,6 +64,29 @@ check(COMBAT.dodge > COMBAT.bare && SPECIAL.monster.every((s) => s.outcomes[0][0
 check(turnCost({ moved: true, slow: true }) === 3, '다리가 없으면 어떤 칸 이동이든 세 턴 (피하기·함정 넘기 포함)');
 check(turnCost({ moved: false, slow: true }) === 1, '제자리 행동은 한 턴');
 check(turnCost({ moved: true, slow: true, pending: 2 }) === 3 && turnCost({ moved: true, slow: false, pending: 2 }) === 2, '기어가기(2턴)와 다리 없음 중 큰 쪽');
+
+// ── 기하 ────────────────────────────────────────────────
+check(faceOf(0, 1, 0) === 2 && faceOf(0, -1, 0) === 0 && faceOf(1, 0, 1) === 3 && faceOf(1, 0, -1) === 1, '광선이 닿은 벽면의 방향');
+const hit = raySegment(0, 0, 1, 0, 2, -1, 2, 1);
+check(hit && Math.abs(hit.t - 2) < 1e-9 && Math.abs(hit.s - 0.5) < 1e-9, '광선-선분 교점');
+check(raySegment(0, 0, 1, 0, 0, 1, 2, 1) === null, '평행이면 없음');
+check(raySegment(0, 0, -1, 0, 2, -1, 2, 1) === null, '뒤쪽이면 없음');
+check(raySegment(0, 0, 1, 0, 2, 0.5, 2, 1) === null, '끝점 밖이면 없음');
+
+// ── 텍스처 ──────────────────────────────────────────────
+check(Math.abs(noise(0, 3.3, 8, 1) - noise(8, 3.3, 8, 1)) < 1e-9, 'noise 는 주기마다 이어진다');
+const fl = procedural('floor');
+check(fl.length === TEX * TEX * 4, '256×256 RGBA');
+let seam = 0;
+for (let y = 0; y < TEX; y++) seam = Math.max(seam, Math.abs(fl[(y * TEX) * 4] - fl[(y * TEX + TEX - 1) * 4]));
+check(seam < 40, '가로로 이어 붙여도 이음새가 튀지 않는다');
+check(JSON.stringify([...procedural('floor')].slice(0, 400)) === JSON.stringify([...fl].slice(0, 400)), '같은 입력이면 같은 텍스처');
+const red = procedural('wall', '#aa0000');
+check(red[0] > red[1] * 3, '색을 주면 그 톤');
+check(JSON.stringify(hexToRgb('#8a3b3b')) === '[138,59,59]' && hexToRgb('red') === null, 'hexToRgb');
+const white = new Uint8ClampedArray(TEX * TEX * 4).fill(255);
+tintGrime(white, [216, 199, 122], 0);
+check(white[0] === 216 && white[1] === 199 && white[2] === 122, '톤을 곱한다');
 
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);
