@@ -9,6 +9,7 @@
 
 import { sprite, drawUncanny, stretchFor } from '/uncanny.js';
 import { nextStep, wanderStep } from '/paths.js';
+import { pickPart, effectsOf, severityOf } from '/body.js';
 
 const TAU = Math.PI * 2;
 
@@ -25,11 +26,6 @@ const COLORS = {
   trap: [90, 40, 40],
 };
 
-const BODY_PARTS = [
-  '머리카락 한 움큼', '왼쪽 새끼손가락', '오른쪽 검지손가락', '왼쪽 손목', '오른쪽 팔',
-  '왼쪽 발목', '오른쪽 다리', '왼쪽 귀', '앞니 두 개', '오른쪽 눈', '혀', '신장 하나',
-];
-
 const ITEM_NAME = { pistol: '권총', knife: '칼', map: '지도' };
 
 // 0=동 1=남 2=서 3=북
@@ -44,7 +40,7 @@ class Audio2 {
     if (this.ctx?.state === 'suspended') this.ctx.resume();
   }
   blip(freq, dur, type = 'square', gain = 0.08) {
-    if (!this.ctx) return;
+    if (!this.ctx || this.muted) return;
     const t = this.ctx.currentTime;
     const o = this.ctx.createOscillator();
     const g = this.ctx.createGain();
@@ -75,7 +71,7 @@ class Audio2 {
 
 /* ── 게임 ─────────────────────────────────────────── */
 export class Game {
-  constructor(world, canvas, minimap, hooks = {}) {
+  constructor(world, canvas, minimap, hooks = {}, body = { lostParts: [] }) {
     this.w = world;
     this.s = world.state;
     this.canvas = canvas;
@@ -114,8 +110,10 @@ export class Game {
     this.carriedCorpse = 0;
 
     this.mapKnown = !!this.s.map;
-    this.turnsLeft = this.s.hunger ? Math.max(8, Math.round(this.s.hunger / 2)) : 0;
-    this.lostParts = [];
+    // 이미 잃고 들어온 부위. 체력은 다시 깎지 않는다.
+    this.lostBefore = [...(body.lostParts || [])];
+    this.lostParts = [];            // 이번 판에 잃은 것
+    if (effectsOf(this.lostBefore).has('deaf')) this.audio.muted = true;
 
     this.monsters = world.monsters.map((m) => ({
       id: m.id, x: Math.floor(m.x), y: Math.floor(m.y), hp: 3, alive: true,
@@ -125,6 +123,7 @@ export class Game {
     this.items = world.items.filter((it) => !it.auto)
       .map((it) => ({ ...it, x: Math.floor(it.x), y: Math.floor(it.y), taken: false }));
     this.baits = [];
+    this.pendingTurns = 0;
 
     // 방명록 물체. 규칙에는 영향 없이 서 있기만 한다.
     this.objects = (world.objects || []).map((o) => ({
@@ -208,7 +207,7 @@ export class Game {
     for (const f of (this.s.flavor || []).slice(-3)) this.log(f, 'sys');
     if (this.mapKnown) this.log('지도를 손에 쥐고 있다. 미로의 구조가 전부 그려져 있다.');
     if (this.s.noPain) this.log('여기서는 아파지지 않는다. 그게 더 이상하다.', 'sys');
-    if (this.turnsLeft) this.log(`배가 고프다. ${this.turnsLeft}번쯤 더 움직이면 한계다.`, 'bad');
+    if (this.lostBefore.length) this.log(`${this.lostBefore.join(', ')} 없이 들어왔다.`, 'sys');
     this.describe();
   }
 
@@ -234,7 +233,8 @@ export class Game {
       hasPistol: this.hasPistol,
       hasKnife: this.hasKnife,
       corpse: this.carriedCorpse,
-      turnsLeft: this.turnsLeft,
+      lost: this.allLost,
+      rangedName: this.rangedName,
       noPain: this.s.noPain,
       facing: DIR_NAME[this.facing],
     };
@@ -245,6 +245,9 @@ export class Game {
     this.choices = this.buildChoices();
     this.hooks.onChoices?.(this.choices);
   }
+
+  get allLost() { return [...this.lostBefore, ...this.lostParts]; }
+  get fx() { return effectsOf(this.allLost); }
 
   ahead(n = 1) {
     const [dx, dy] = DIRS[this.facing];
@@ -293,15 +296,19 @@ export class Game {
     }
 
     const it = this.itemHere();
-    if (it) out.push({ id: 'take', label: `${ITEM_NAME[it.kind] || '무언가'}을(를) 줍는다`, kind: 'act' });
+    // 팔이 없으면 주울 수 없다.
+    const noGrab = this.fx.has('noGrab');
+    const grab = noGrab ? { disabled: true, hint: '팔이 없다' } : {};
+    if (it) out.push({ id: 'take', label: `${ITEM_NAME[it.kind] || '무언가'}을(를) 줍는다`, kind: 'act', ...grab });
     const tool = this.toolHere();
-    if (tool) out.push({ id: 'tool', label: `${tool.name}을(를) 줍는다`, kind: 'act' });
+    if (tool) out.push({ id: 'tool', label: `${tool.name}을(를) 줍는다`, kind: 'act', ...grab });
     const co = this.corpseHere();
-    if (co) out.push({ id: 'corpse', label: '시체를 챙긴다', kind: 'act' });
+    if (co) out.push({ id: 'corpse', label: '시체를 챙긴다', kind: 'act', ...grab });
 
     if (sight) {
       if (this.hasPistol && this.ammo > 0) {
-        out.push({ id: 'shoot', label: `${this.rangedName || '총'}을(를) 쏜다`, hint: `${this.ammo}발 남음`, kind: 'fight' });
+        const noTrigger = this.fx.has('noTrigger');
+        out.push({ id: 'shoot', label: `${this.rangedName || '총'}을(를) 쏜다`, hint: noTrigger ? '방아쇠를 당길 손가락이 없다' : `${this.ammo}번 남음`, disabled: noTrigger, kind: 'fight' });
       }
       if (sight.dist === 1) {
         const label = this.meleeName && this.meleeName !== '칼' ? `${this.meleeName}(으)로 내려친다`
@@ -346,7 +353,12 @@ export class Game {
     }
 
     if (this.won || this.dead) { this.pushState(); return; }
-    if (spendsTurn) this.endTurn();
+    if (spendsTurn) {
+      // 다리가 없으면 한 칸 옮기는 데 세 턴이 걸린다.
+      const turns = (id === 'forward' && this.fx.has('slow')) ? 3 : (this.pendingTurns || 1);
+      this.pendingTurns = 0;
+      for (let i = 0; i < turns && !this.dead; i++) this.endTurn();
+    }
     this.pushState();
   }
 
@@ -448,13 +460,14 @@ export class Game {
     const t = this.traps.find((t) => !t.sprung && t.x === this.cx && t.y === this.cy);
     if (!t) return;
     t.sprung = true;
-    if (this.s.noPain) this.log('바닥에서 솟은 것이 발목을 관통했다. 아무렇지도 않다.', 'sys');
-    else this.damage(45, '함정이다. 바닥에서 솟은 것이 몸을 꿰뚫었다.');
+    this.losePart('random', '함정이다. 바닥에서 솟은 것이 몸을 꿰뚫었다.');
   }
 
   tryExit() {
     if (this.s.exitCost !== 'random_body_part') { this.escape(); return; }
-    const part = BODY_PARTS[Math.floor(Math.random() * BODY_PARTS.length)];
+    const part = pickPart(this.allLost);
+    // 요구하는 부위를 이미 잃었으면 영영 열리지 않는다. 다 잘려도 마찬가지다.
+    if (!part) { this.log('더 내려놓을 것이 없다. 문은 열리지 않는다.', 'bad'); return; }
     this.lostParts.push(part);
 
     if (part === this.w.demandedPart) {
@@ -465,9 +478,9 @@ export class Game {
     if (this.s.noPain) {
       this.log(`${part}을(를) 잘라 내려놓았다. 아프지 않다. 문은 그대로다.`, 'sys');
     } else {
-      const fatal = ['신장 하나', '혀', '오른쪽 눈'].includes(part);
-      this.damage(fatal ? 100 : 30, `${part}을(를) 잘라 내려놓았다. 문은 열리지 않는다.`);
+      this.damage(severityOf(part), `${part}을(를) 잘라 내려놓았다. 문은 열리지 않는다.`);
     }
+    if (this.fx.has('deaf')) this.audio.muted = true;
   }
 
   escape() {
@@ -476,10 +489,22 @@ export class Game {
     this.audio.door();
     this.hooks.onEnd?.({
       won: true,
-      lostParts: this.lostParts,
-      healed: this.s.healOnExit && this.lostParts.length > 0,
+      lostParts: this.allLost,
+      healed: this.s.healOnExit && this.allLost.length > 0,
       turns: this.turn,
     });
+  }
+
+  /** 부위 하나를 잃는다. effect 를 주면 그 효과의 부위를 먼저. 치명도만큼 체력이 깎인다. */
+  losePart(effect, how) {
+    const part = pickPart(this.allLost, Math.random, effect === 'random' ? undefined : effect);
+    if (!part) { this.damage(30, `${how || ''} 더 내줄 것이 없다.`.trim()); return null; }
+    this.lostParts.push(part);
+    const line = `${how ? `${how} ` : ''}${part}을(를) 잃었다.`;
+    if (this.s.noPain) this.log(`${line} 아프지 않다.`, 'sys');
+    else this.damage(severityOf(part), line);
+    if (this.fx.has('deaf')) this.audio.muted = true;
+    return part;
   }
 
   damage(amount, msg) {
@@ -494,7 +519,7 @@ export class Game {
   die(reason) {
     if (this.dead || this.won) return;
     this.dead = true;
-    this.hooks.onEnd?.({ won: false, reason, lostParts: this.lostParts, x: this.cx, y: this.cy });
+    this.hooks.onEnd?.({ won: false, reason, lostParts: this.allLost, x: this.cx, y: this.cy });
   }
 
   /* ── 턴 넘기기 ─────────────────────────────────── */
@@ -506,12 +531,6 @@ export class Game {
 
     for (const b of this.baits) b.life--;
     this.baits = this.baits.filter((b) => b.life > 0);
-
-    if (this.turnsLeft > 0) {
-      this.turnsLeft--;
-      if (this.turnsLeft === 0) { this.die('굶어 죽었다.'); return; }
-      if (this.turnsLeft <= 5) this.log(`눈앞이 흐려진다. (${this.turnsLeft})`, 'bad');
-    }
 
     if (this.s.shifting && this.turn % 8 === 0) this.shiftMaze();
   }
@@ -562,7 +581,7 @@ export class Game {
     }
     const near = this.monsters.filter((m) => m.alive)
       .some((m) => Math.abs(m.x - this.cx) + Math.abs(m.y - this.cy) <= 3);
-    if (near) { this.audio.growl(); this.log('숨소리가 가깝다.', 'bad'); }
+    if (near && !this.fx.has('deaf')) { this.audio.growl(); this.log('숨소리가 가깝다.', 'bad'); }
   }
 
   los(x0, y0, x1, y1) {
@@ -578,6 +597,7 @@ export class Game {
   describe() {
     const bits = [];
     const a = this.ahead();
+    const blind = this.fx.has('blind');
 
     if (this.atExit()) {
       bits.push('문이 눈앞에 있다.');
@@ -587,15 +607,15 @@ export class Game {
       let n = 0;
       const [dx, dy] = DIRS[this.facing];
       while (n < 12 && !this.wall(this.cx + dx * (n + 1), this.cy + dy * (n + 1))) n++;
-      bits.push(n >= 5 ? '긴 복도가 어둠 속으로 이어진다.' : `${DIR_NAME[this.facing]}쪽으로 길이 이어진다.`);
+      bits.push(blind ? '앞이 잘 보이지 않는다.' : n >= 5 ? '긴 복도가 어둠 속으로 이어진다.' : `${DIR_NAME[this.facing]}쪽으로 길이 이어진다.`);
       if (this.w.exit && this.cx + dx * n === this.w.exit.x && this.cy + dy * n === this.w.exit.y) {
         bits.push('복도 끝에서 희미한 빛이 새어 나온다.');
       }
     }
 
     const sight = this.monsterInSight();
-    if (sight) {
-      bits.push(sight.dist === 1
+    if (sight && (!blind || sight.dist === 1)) {
+      bits.push(blind ? '바로 앞에 무언가 있다.' : sight.dist === 1
         ? '바로 앞에 그것이 서 있다.'
         : `${sight.dist}걸음 앞에 무언가 웅크리고 있다.`);
     }
@@ -616,7 +636,7 @@ export class Game {
       if (onWall.length) bits.push(withDesc(`벽에 ${onWall[0].name}이(가) 걸려 있다.`, onWall[0]));
     } else {
       const front = floorObj(a.x, a.y);
-      if (front) bits.push(withDesc(`앞에 ${front.name} 같은 것이 있다.`, front));
+      if (front) bits.push(blind ? '앞에 무언가 있다.' : withDesc(`앞에 ${front.name} 같은 것이 있다.`, front));
     }
 
     this.log(bits.join(' '));
@@ -674,7 +694,7 @@ export class Game {
       const base = top ? COLORS.ceil : COLORS.floor;
       // 거리감을 주는 세로 그라데이션
       const k = top ? y / (rh / 2) : 1 - (y - rh / 2) / (rh / 2);
-      const f = 0.35 + k * 0.65;
+      const f = (0.35 + k * 0.65) * (this.fx.has('blind') ? 0.35 : 1);
       for (let x = 0; x < rw; x++) {
         const i = (y * rw + x) * 4;
         data[i] = base[0] * f; data[i + 1] = base[1] * f; data[i + 2] = base[2] * f; data[i + 3] = 255;
@@ -715,7 +735,7 @@ export class Game {
       const y1 = Math.min(rh - 1, Math.floor(lineH / 2 + rh / 2));
 
       const base = side === 1 ? COLORS.wallDark : COLORS.wallLight;
-      const fog = Math.max(0.14, Math.min(1, 5.0 / d));
+      const fog = Math.max(0.14, Math.min(1, (this.fx.has('blind') ? 1.2 : 5.0) / d));
       const r = base[0] * fog, g = base[1] * fog, b = base[2] * fog;
 
       for (let y = y0; y <= y1; y++) {
@@ -784,6 +804,7 @@ export class Game {
       const tx = invDet * (dirY * sx - dirX * sy);
       const ty = invDet * (-planeY * sx + planeX * sy);
       if (ty <= 0.25) continue;
+      if (this.fx.has('blind') && ty > 1.5) continue;
 
       const unit = Math.abs(rh / ty);
       const screenX = (rw / 2) * (1 + tx / ty);
