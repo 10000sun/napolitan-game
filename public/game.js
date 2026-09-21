@@ -10,7 +10,7 @@
 import { sprite, drawUncanny, stretchFor } from '/uncanny.js';
 import { nextStep, wanderStep } from '/paths.js';
 import { pickPart, effectsOf, severityOf } from '/body.js';
-import { COMBAT, EVENTS, resolve, pickSpecial, attackChance, dodgeChance, monsterSteps } from '/encounters.js';
+import { COMBAT, EVENTS, resolve, pickSpecial, attackChance, dodgeChance, monsterSteps, turnCost } from '/encounters.js';
 
 const TAU = Math.PI * 2;
 
@@ -363,6 +363,7 @@ export class Game {
     this.audio.resume();
 
     let spendsTurn = true;
+    const before = { x: this.cx, y: this.cy };
     switch (id) {
       case 'left': this.facing = (this.facing + 3) % 4; spendsTurn = false; this.describe(); break;
       case 'right': this.facing = (this.facing + 1) % 4; spendsTurn = false; this.describe(); break;
@@ -385,8 +386,8 @@ export class Game {
 
     if (this.won || this.dead) { this.pushState(); return; }
     if (spendsTurn) {
-      // 다리가 없으면 한 칸 옮기는 데 세 턴이 걸린다.
-      const turns = (id === 'forward' && this.fx.has('slow')) ? 3 : (this.pendingTurns || 1);
+      // 다리가 없으면 칸을 옮기는 모든 행동이 세 턴이다.
+      const turns = turnCost({ moved: this.cx !== before.x || this.cy !== before.y, slow: this.fx.has('slow'), pending: this.pendingTurns });
       this.pendingTurns = 0;
       for (let i = 0; i < turns && !this.dead; i++) this.endTurn();
     }
@@ -473,7 +474,7 @@ export class Game {
     this.log('맞았지만 그것은 꿈쩍도 하지 않는다. 그것이 반격한다.', 'bad');
     this.damage(this.s.noPain ? 0 : COMBAT.counterDamage);
     if (!this.dead && Math.random() < COMBAT.counterPartChance) this.losePart('random', '그것이 물어뜯었다.');
-    sight.m.stun = 0;
+    sight.m.stun = 1;   // 반격이 그 턴의 물기를 대신한다
   }
 
   killMonster(m) {
@@ -511,6 +512,7 @@ export class Game {
       this.log('몸을 틀었다. 그것의 손이 어깨를 스친다.');
     } else {
       this.damage(this.s.noPain ? 0 : COMBAT.dodgeFailDamage, '피하지 못했다.');
+      sight.m.stun = 1;   // 스친 것으로 그 턴은 끝난다
     }
   }
 

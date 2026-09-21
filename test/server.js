@@ -8,7 +8,7 @@ process.env.DB_PATH = path.join(tmp, 'test.db');
 delete process.env.DEV_NO_AUTH;
 
 const { q } = await import('../src/db.js');
-const { canEnter, bodyOf, saveBodyOnClear, resetBody } = await import('../src/runs.js');
+const { canEnter, bodyOf, saveBodyOnClear, resetBody, isOpen } = await import('../src/runs.js');
 
 let fail = 0;
 const check = (c, label) => { console.log(`  ${c ? '✓' : '✗'} ${label}`); if (!c) fail++; };
@@ -28,12 +28,16 @@ delete process.env.DEV_NO_AUTH;
 check(JSON.stringify(bodyOf(a)) === '[]', '처음엔 온몸');
 check(JSON.stringify(saveBodyOnClear(a, ['혀', '혀', '날개', '오른쪽 팔'], false)) === '["혀","오른쪽 팔"]', '나오면 잃은 부위를 그대로 (모르는 이름·중복 제거)');
 check(JSON.stringify(bodyOf(a)) === '["혀","오른쪽 팔"]', '다음에 들어올 때 그대로');
-check(JSON.stringify(saveBodyOnClear(a, Array(5000).fill('혀'), false)) === '["혀"]', '거대한 목록도 알려진 이름만');
+check(JSON.stringify(saveBodyOnClear(a, Array(5000).fill('혀'), false)) === '["혀","오른쪽 팔"]', '거대한 목록도 알려진 이름만 (이미 잃은 부위는 남는다)');
 saveBodyOnClear(a, ['혀'], true);
 check(JSON.stringify(bodyOf(a)) === '[]', '나오면 돌아온다는 규칙이 있으면 온몸으로');
 saveBodyOnClear(b, ['왼쪽 귀'], false);
 resetBody(b);
 check(JSON.stringify(bodyOf(b)) === '[]', '죽으면 몸은 초기화된다');
+
+saveBodyOnClear(a, ['혀'], false);
+check(JSON.stringify(saveBodyOnClear(a, [], false)) === '["혀"]', '빈 몸을 보내도 이미 잃은 부위는 돌아오지 않는다');
+check(isOpen({ cleared_at: null, died_at: null }) && !isOpen({ cleared_at: 1, died_at: null }) && !isOpen({ cleared_at: null, died_at: 1 }), '끝난 판에는 죽음도 클리어도 다시 기록하지 않는다');
 
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);

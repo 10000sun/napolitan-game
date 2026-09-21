@@ -1,6 +1,6 @@
 // 브라우저 코드 중 DOM 없이 돌아가는 순수 함수들.
 import { nextStep, wanderStep } from '../public/paths.js';
-import { COMBAT, SPECIAL, EVENTS, resolve, available, pickSpecial, attackChance, dodgeChance, monsterSteps } from '../public/encounters.js';
+import { COMBAT, SPECIAL, EVENTS, resolve, available, pickSpecial, attackChance, dodgeChance, monsterSteps, turnCost } from '../public/encounters.js';
 import { PARTS, BODY_PARTS, pickPart, effectsOf, severityOf, sanitizeParts } from '../public/body.js';
 
 let fail = 0;
@@ -58,6 +58,10 @@ const allNext = [...SPECIAL.monster, ...SPECIAL.trap, ...Object.values(EVENTS).f
 check(allNext.every((r) => !r.next || EVENTS[r.next]), '모든 후속 이벤트가 존재한다');
 check(allNext.every((r) => !r.losePart || r.losePart === 'random' || ['deaf', 'noTrigger', 'noGrab', 'slow', 'blind'].includes(r.losePart)), '모든 부위 효과가 존재한다');
 check(COMBAT.dodge > COMBAT.bare && SPECIAL.monster.every((s) => s.outcomes[0][0] >= 0.4), '회피가 맨손 공격보다 낫다');
+
+check(turnCost({ moved: true, slow: true }) === 3, '다리가 없으면 어떤 칸 이동이든 세 턴 (피하기·함정 넘기 포함)');
+check(turnCost({ moved: false, slow: true }) === 1, '제자리 행동은 한 턴');
+check(turnCost({ moved: true, slow: true, pending: 2 }) === 3 && turnCost({ moved: true, slow: false, pending: 2 }) === 2, '기어가기(2턴)와 다리 없음 중 큰 쪽');
 
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);

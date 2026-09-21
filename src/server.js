@@ -10,7 +10,7 @@ import { buildWorld, deathCell } from './world.js';
 import { compileEntry, offlineFallback } from './compiler.js';
 import { isConfigured, describeProvider } from './llm.js';
 import { foldEffects, normalizeObject } from './effects.js';
-import { canEnter, bodyOf, saveBodyOnClear, resetBody } from './runs.js';
+import { canEnter, bodyOf, saveBodyOnClear, resetBody, isOpen } from './runs.js';
 import { resolveAsset, imgFor, ITEM_ASSETS, assetDir, LIBRARY_DIR } from './assets.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -140,6 +140,7 @@ app.post('/api/run/:id/clear', requireUser, (req, res) => {
 app.post('/api/run/:id/die', requireUser, (req, res) => {
   const run = q.runById.get(Number(req.params.id));
   if (!run || run.user_id !== req.user.id) return res.status(404).json({ error: '그런 기록이 없습니다.' });
+  if (!isOpen(run)) return res.status(409).json({ error: '이미 끝난 기록입니다.' });
   // 그 런이 걷던 미로 크기 안의 칸만 믿는다.
   const size = foldEffects(loadAppliedRules().slice(0, run.rule_count).map((r) => r.effects)).mazeSize;
   const cell = deathCell(req.body, size);

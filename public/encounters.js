@@ -95,3 +95,6 @@ export function attackChance(weapon, melee, effects) {
 
 export const dodgeChance = (effects) => (effects.has('slow') ? COMBAT.dodgeSlow : COMBAT.dodge);
 export const monsterSteps = (speed = 1) => Math.max(1, Math.round(2 * speed));
+
+/** 이번 선택이 쓰는 턴 수. 다리가 없으면 칸을 옮기는 모든 행동이 세 턴이다. */
+export const turnCost = ({ moved, slow, pending = 1 }) => Math.max(pending || 1, moved && slow ? 3 : 1);
