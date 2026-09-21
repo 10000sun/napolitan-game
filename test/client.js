@@ -1,5 +1,6 @@
 // 브라우저 코드 중 DOM 없이 돌아가는 순수 함수들.
 import { nextStep, wanderStep } from '../public/paths.js';
+import { RuleEngine } from '../public/rules.js';
 import { faceOf, raySegment, wallU } from '../public/geometry.js';
 import { TEX, noise, procedural, tintGrime, hexToRgb, wallpaper } from '../public/textures.js';
 import { COMBAT, SPECIAL, EVENTS, resolve, available, pickSpecial, attackChance, dodgeChance, monsterSteps, turnCost, rollAttack } from '../public/encounters.js';
@@ -106,6 +107,34 @@ for (const surf of ['floor', 'ceil']) {
   for (let x = 0; x < TEX; x++) vs = Math.max(vs, Math.abs(px[x * 4] - px[((TEX - 1) * TEX + x) * 4]));
   check(vs < 40, `${surf} 세로로 이어 붙여도 이음새가 튀지 않는다`);
 }
+
+// ── 규칙 엔진 ────────────────────────────────────────────
+const S = (o = {}) => ({ turn: 0, here: new Set(), near: new Set(), seeMonster: false, hp: 100, atDoor: false, ...o });
+const say = (t) => [{ act: 'say', text: t }];
+let eng = new RuleEngine([
+  { on: 'act', target: '고양이', verb: '쓰다듬는다', chance: 1, once: false, do: say('a') },
+  { on: 'act', target: '거울', verb: '본다', chance: 1, once: true, do: say('b') },
+], () => 0);
+check(eng.buttons(new Set(['고양이'])).map((b) => b.i).join() === '0', '대상이 곁에 있을 때만 버튼');
+check(eng.act(1)[0].text === 'b' && eng.act(1).length === 0 && eng.buttons(new Set(['거울'])).length === 0, 'once 는 한 번 쓰면 사라진다');
+eng = new RuleEngine([{ on: 'start', chance: 0.5, once: false, do: say('s') }], () => 0.5);
+check(eng.update(S()).length === 0, 'chance 0.5 에 rng 0.5 는 실패');
+eng = new RuleEngine([{ on: 'start', chance: 0.5, once: false, do: say('s') }], () => 0.49);
+check(eng.update(S()).length === 1 && eng.update(S()).length === 0, 'start 는 한 번');
+eng = new RuleEngine([{ on: 'see_monster', chance: 1, once: false, do: say('m') }], () => 0);
+check(eng.update(S({ seeMonster: true })).length === 1, '괴물이 보이면 발동');
+check(eng.update(S({ seeMonster: true })).length === 0, '계속 보이는 동안은 다시 발동하지 않는다');
+eng.update(S({ seeMonster: false }));
+check(eng.update(S({ seeMonster: true })).length === 1, '사라졌다 다시 보이면 또 발동');
+eng = new RuleEngine([{ on: 'every', n: 3, chance: 1, once: false, do: say('e') }], () => 0);
+const fired = [1, 2, 3, 3, 4, 5, 6].map((turn) => eng.update(S({ turn })).length).join('');
+check(fired === '0010001', 'every 3: 3·6턴에 한 번씩 (같은 턴 재평가는 무시)');
+eng = new RuleEngine([{ on: 'enter', target: '시체', chance: 1, once: false, do: say('x') }, { on: 'hurt', n: 30, chance: 1, once: false, do: say('h') }], () => 0);
+check(eng.update(S({ here: new Set(['시체']), hp: 20 })).length === 2 && eng.update(S({ here: new Set(['시체']), hp: 10 })).length === 0, 'enter·hurt 도 새로 참일 때만');
+eng = new RuleEngine([{ on: 'pickup', target: '권총', chance: 1, once: false, do: say('p') }], () => 0);
+check(eng.pickup('권총').length === 1 && eng.pickup('칼').length === 0, 'pickup 은 대상이 맞을 때');
+eng = new RuleEngine([{ on: 'door', chance: 1, once: false, do: [{ act: 'teleport', to: 'start' }] }], () => 0);
+check(eng.update(S({ atDoor: true })).length === 1 && eng.update(S({ atDoor: true })).length === 0, '행동이 부른 상태 변화는 다음 update 에서만 다시 본다 (사슬이 한 번에 돌지 않는다)');
 
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);
