@@ -110,6 +110,15 @@ OpenRouter  OPENAI_BASE_URL=https://openrouter.ai/api/v1     OPENAI_MODEL=<...:f
 Ollama      OPENAI_BASE_URL=http://localhost:11434/v1        OPENAI_MODEL=llama3.1   (키 불필요)
 ```
 
+모델 이름은 수시로 바뀐다. 구글은 옛 모델을 내리는데, 그때 돌아오는 404 가
+후속 모델 이름을 직접 알려주므로 `GEMINI_MODEL` 에 그 이름을 넣으면 된다.
+지금 쓸 수 있는 목록은 이렇게 확인한다.
+
+```bash
+curl -H "x-goog-api-key: $GEMINI_API_KEY" \
+  https://generativelanguage.googleapis.com/v1beta/models
+```
+
 모델이 작을수록 판정이 헐거워진다. 특히 **겹침·밀려남 판정과 저격·신상
 차단은 모델 성능에 직접 걸린다.** 무료 모델로 바꿨다면 서버에 올리기 전에
 `test/` 대신 실제로 몇 줄 적어 보고 판정을 눈으로 확인할 것.
