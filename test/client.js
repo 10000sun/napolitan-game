@@ -1,6 +1,6 @@
 // 브라우저 코드 중 DOM 없이 돌아가는 순수 함수들.
 import { nextStep, wanderStep } from '../public/paths.js';
-import { faceOf, raySegment } from '../public/geometry.js';
+import { faceOf, raySegment, wallU } from '../public/geometry.js';
 import { TEX, noise, procedural, tintGrime, hexToRgb, wallpaper } from '../public/textures.js';
 import { COMBAT, SPECIAL, EVENTS, resolve, available, pickSpecial, attackChance, dodgeChance, monsterSteps, turnCost } from '../public/encounters.js';
 import { PARTS, BODY_PARTS, pickPart, effectsOf, severityOf, sanitizeParts } from '../public/body.js';
@@ -93,6 +93,10 @@ check(plain[(TEX * (TEX - 4)) * 4] < plain[(TEX * 10) * 4] * 0.7, '벽 사진 �
 let stripe = 0;
 for (let x = 0; x < TEX; x++) stripe = Math.max(stripe, Math.abs(plain[(TEX * 10 + x) * 4] - plain[(TEX * 10) * 4]));
 check(stripe > 5, '벽 사진에 세로 줄무늬');
+
+// 동쪽을 보면 화면 왼쪽이 북쪽(y 작음) → wallX 가 작은 쪽이 왼쪽이라 그대로. 서·남은 뒤집는다.
+check(wallU(0, 1, 0, 0.2) === 0.2 && Math.abs(wallU(0, -1, 0, 0.2) - 0.8) < 1e-9, '벽 그림이 거울상이 되지 않는다 (동·서)');
+check(Math.abs(wallU(1, 0, 1, 0.2) - 0.8) < 1e-9 && wallU(1, 0, -1, 0.2) === 0.2, '벽 그림이 거울상이 되지 않는다 (남·북)');
 
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);

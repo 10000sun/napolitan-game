@@ -9,7 +9,7 @@
 
 import { sprite, drawUncanny, stretchFor, emojiCanvas, decalPixels } from '/uncanny.js';
 import { TEX, buildSurfaces } from '/textures.js';
-import { faceOf, raySegment } from '/geometry.js';
+import { faceOf, raySegment, wallU } from '/geometry.js';
 import { nextStep, wanderStep } from '/paths.js';
 import { pickPart, effectsOf, severityOf } from '/body.js';
 import { COMBAT, EVENTS, resolve, pickSpecial, attackChance, dodgeChance, monsterSteps, turnCost } from '/encounters.js';
@@ -183,7 +183,8 @@ export class Game {
       this.lastT = t;
       this.stepCamera(dt);
       // 느리면 해상도를 한 단계 내린다. 올리지는 않는다.
-      this.frameMs.push(dt * 1000);
+      // 텍스처를 만드는 동안의 끊김은 느린 기기로 오판하지 않도록 텍스처가 온 뒤부터 잰다.
+      if (this.tex) this.frameMs.push(dt * 1000);
       if (this.frameMs.length >= 30) {
         const avg = this.frameMs.reduce((a, b) => a + b, 0) / this.frameMs.length;
         this.frameMs = [];
@@ -1010,8 +1011,7 @@ export class Game {
       }
 
       let wallX = side === 0 ? this.py + d * rdy : this.px + d * rdx;
-      wallX -= Math.floor(wallX);
-      if ((side === 0 && rdx > 0) || (side === 1 && rdy < 0)) wallX = 1 - wallX;   // 어느 쪽에서 봐도 같은 방향
+      wallX = wallU(side, rdx, rdy, wallX - Math.floor(wallX));   // 어느 쪽에서 봐도 거울상이 되지 않게
       const tu = Math.min(TEX - 1, (wallX * TEX) | 0);
       const fog = Math.min(1, d / fogDist);
       const k = light * (side ? 0.8 : 1);

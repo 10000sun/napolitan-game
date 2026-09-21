@@ -17,3 +17,11 @@ export function raySegment(px, py, rdx, rdy, ax, ay, bx, by) {
   if (t <= 0 || s < 0 || s > 1) return null;
   return { t, s };
 }
+
+/**
+ * 벽 텍스처의 가로 좌표. 화면 왼쪽 → 오른쪽으로 늘어나게 맞춘다 (그림이 거울상이 되지 않게).
+ * 이 게임의 카메라 평면은 (-dirY, dirX) 라서 서쪽·남쪽을 볼 때 뒤집는다.
+ */
+export function wallU(side, rdx, rdy, wallX) {
+  return (side === 0 && rdx < 0) || (side === 1 && rdy > 0) ? 1 - wallX : wallX;
+}
