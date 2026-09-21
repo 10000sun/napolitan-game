@@ -1,0 +1,24 @@
+{
+  "name": "napolitan-game",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "방명록이 세계를 바꾸는 나폴리탄 괴담 게임",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node test/replay.js && node test/compiler.js",
+    "seed": "node test/seed.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "better-sqlite3": "^11.10.0",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}

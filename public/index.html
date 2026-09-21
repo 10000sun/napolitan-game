@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>공책이 있는 방</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230a0908'/%3E%3Crect x='7' y='5' width='18' height='22' fill='%23d9d2c2'/%3E%3Cpath d='M10 10h12M10 14h12M10 18h8' stroke='%237d1f1a' stroke-width='1.5'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Gothic+Coding:wght@400;700&family=Gowun+Batang:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- ── 현관 ───────────────────────────────────────────────── -->
+<section id="lobby" class="screen active">
+  <div class="lobby-inner">
+    <h1 class="title">공책이 있는 방</h1>
+    <p class="subtitle">눈을 떠 보니 낯선 공간이다.<br>바닥에 공책 한 권이 놓여 있다.</p>
+
+    <div id="room-status" class="room-status"></div>
+
+    <div class="lobby-actions">
+      <button id="btn-read" class="btn">공책을 읽는다</button>
+      <button id="btn-enter" class="btn btn-primary">안으로 들어간다</button>
+    </div>
+
+    <div id="auth-box" class="auth-box"></div>
+  </div>
+</section>
+
+<!-- ── 방명록 ─────────────────────────────────────────────── -->
+<section id="guestbook" class="screen">
+  <div class="book">
+    <header class="book-head">
+      <h2>방명록</h2>
+      <button id="btn-close-book" class="btn btn-ghost">덮는다</button>
+    </header>
+
+    <div id="entries" class="entries"></div>
+
+    <div id="write-box" class="write-box hidden">
+      <p class="write-hint">
+        당신은 이곳을 빠져나왔다. 출구 쪽 공책에 한 줄을 남길 수 있다.<br>
+        <strong>여기 적힌 것은 다음 사람에게 그대로 일어난다.</strong> 되돌릴 수 없다.
+      </p>
+      <textarea id="write-text" maxlength="500" rows="3" placeholder="신중하게 적으세요."></textarea>
+      <div class="write-actions">
+        <span id="write-count" class="count">0 / 500</span>
+        <button id="btn-submit" class="btn btn-primary">적는다</button>
+      </div>
+      <div id="write-result" class="write-result hidden"></div>
+    </div>
+
+    <footer id="book-stats" class="book-stats"></footer>
+  </div>
+</section>
+
+<!-- ── 게임 ───────────────────────────────────────────────── -->
+<section id="game" class="screen">
+  <canvas id="view"></canvas>
+  <canvas id="minimap"></canvas>
+
+  <div id="hud" class="hud">
+    <div class="hud-row"><span class="hud-label">체력</span><div class="bar"><i id="hp-bar"></i></div><span id="hp-text">100</span></div>
+    <div id="hud-weapon" class="hud-row"></div>
+    <div id="hud-timer" class="hud-row hidden"></div>
+  </div>
+
+  <div id="log" class="log"></div>
+  <div id="crosshair" class="crosshair"></div>
+  <div id="prompt" class="prompt hidden"></div>
+
+  <div id="pause" class="overlay hidden">
+    <div class="overlay-card">
+      <h3>멈춤</h3>
+      <p class="dim">W A S D 이동 · 마우스 시점 · 좌클릭 공격 · E 상호작용 · Shift 달리기</p>
+      <button id="btn-resume" class="btn btn-primary">계속</button>
+      <button id="btn-give-up" class="btn btn-ghost">포기하고 나간다</button>
+    </div>
+  </div>
+
+  <div id="ending" class="overlay hidden">
+    <div class="overlay-card">
+      <h3 id="ending-title"></h3>
+      <p id="ending-text" class="dim"></p>
+      <button id="btn-ending" class="btn btn-primary"></button>
+    </div>
+  </div>
+</section>
+
+<div id="toast" class="toast hidden"></div>
+
+<script type="module" src="/ui.js"></script>
+</body>
+</html>
