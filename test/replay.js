@@ -2,6 +2,7 @@
 // 컴파일러가 낼 법한 출력을 직접 넣어서, Effect → 월드 변화가 맞는지 본다.
 import { buildWorld, deathCell } from '../src/world.js';
 import { foldEffects } from '../src/effects.js';
+import fs from 'node:fs';
 
 const SCRIPT = [
   ['아무 말이나 적고 가면 나갈 수 있는 거 같아요', []],
@@ -110,6 +111,52 @@ check(JSON.stringify(deathCell({ x: 3, y: 4 }, 15)) === '{"x":3,"y":4}', '정상
 for (const bad of [{ x: '3', y: 4 }, { x: -1, y: 4 }, { x: 3.5, y: 4 }, { x: 15, y: 4 }, { y: 4 }, null, { x: 3, y: 1e9 }]) {
   check(deathCell(bad, 15) === null, `이상한 좌표는 버린다 ${JSON.stringify(bad)}`);
 }
+
+// ── 말 그대로: 배치 ──────────────────────────────────────
+const snap = JSON.parse(fs.readFileSync(new URL('./fixtures/replay-final.json', import.meta.url)));
+const now = buildWorld(rules);
+const { layout: _l, monsterLook: _m, objects: _o1, ...nowOld } = now;
+const { objects: _o2, ...snapOld } = snap;
+check(JSON.stringify(nowOld) === JSON.stringify(snapOld), '원작 방명록의 월드는 변경 전과 같다');
+check(now.layout === 'maze', '크기 15 에 레이아웃이 없으면 미로');
+
+const roomW = buildWorld([{ id: 1, effects: [{ type: 'maze.size', value: 15 }, { type: 'maze.layout', value: 'room' }] }]);
+let inner = true;
+for (let y = 1; y < 14; y++) for (let x = 1; x < 14; x++) if (roomW.grid[y][x] !== 0) inner = false;
+check(roomW.layout === 'room' && inner, 'room + 15 은 내부가 전부 바닥');
+
+const placeRules = [{ id: 1, effects: [
+  { type: 'maze.size', value: 15 },
+  { type: 'object.spawn', name: '활', where: 'entrance', count: 2 },
+  { type: 'object.spawn', name: '종', where: 'exit', count: 2 },
+  { type: 'object.spawn', name: '가면', where: 'wall', count: 5 },
+  { type: 'object.spawn', name: '돌', count: 1 },
+] }];
+const pw = buildWorld(placeRules);
+const bfs = (sx, sy) => { const d = {}; const q = [[sx, sy]]; d[`${sx},${sy}`] = 0;
+  for (let i = 0; i < q.length; i++) { const [x, y] = q[i]; for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+    const nx = x + dx, ny = y + dy, k = `${nx},${ny}`; if (pw.grid[ny]?.[nx] === 0 && d[k] === undefined) { d[k] = d[`${x},${y}`] + 1; q.push([nx, ny]); } } } return d; };
+const fromStart = bfs(1, 1), fromExit = bfs(pw.exit.x, pw.exit.y);
+const byKey = (k) => pw.objects.filter((o) => o.key === k);
+check(byKey('활').length === 2 && byKey('활').every((o) => fromStart[`${o.x},${o.y}`] <= 3), '입구 물체는 시작 칸 가까이');
+check(byKey('종').length === 2 && byKey('종').every((o) => fromExit[`${o.x},${o.y}`] <= 3), '출구 물체는 출구 가까이');
+const DV = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+check(byKey('가면').length === 5 && byKey('가면').every((o) => pw.grid[o.y][o.x] === 1
+  && pw.grid[o.y + DV[o.face][1]]?.[o.x + DV[o.face][0]] === 0), '벽 물체는 벽 칸에, 바라보는 쪽은 바닥');
+check(new Set(byKey('가면').map((o) => `${o.x},${o.y},${o.face}`)).size === 5, '같은 벽면에 둘은 없다');
+const floorCells = pw.objects.filter((o) => o.where !== 'wall').map((o) => `${o.x},${o.y}`);
+check(new Set(floorCells).size === floorCells.length, '바닥 물체끼리 겹치지 않는다');
+check(!floorCells.includes('1,1') && !floorCells.includes(`${pw.exit.x},${pw.exit.y}`), '시작 칸·출구 칸은 비운다');
+check(JSON.stringify(buildWorld(placeRules)) === JSON.stringify(pw), '같은 방명록이면 새 배치도 같다');
+
+check(JSON.stringify(buildWorld(placeRules, [{ x: 1, y: 2 }, { x: 2, y: 1 }, { x: 3, y: 1 }]).objects) === JSON.stringify(pw.objects),
+  '사망 기록은 입구·출구·벽 물체 위치도 바꾸지 않는다');
+
+const crowd = buildWorld([{ id: 1, effects: Array.from({ length: 30 }, (_, i) => ({ type: 'object.spawn', name: `e${i}`, where: 'entrance', count: 5 })) }]);
+check(crowd.objects.length === 7, '빈 칸이 모자라면 놓을 수 있는 만큼만 (5×5 빈 방: 바닥 9 - 시작 - 출구)');
+
+const old = buildWorld([{ id: 1, effects: [{ type: 'maze.size', value: 15 }, { type: 'object.spawn', name: '돌', count: 2 }] }]);
+check(old.objects.every((o) => o.where === 'anywhere' && o.use === 'none' && o.moves === 'still'), '옛 규칙은 기본값으로');
 
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);

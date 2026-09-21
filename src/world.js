@@ -111,6 +111,15 @@ const BODY_PARTS = [
   '왼쪽 발목', '오른쪽 다리', '왼쪽 귀', '앞니 두 개', '오른쪽 눈', '혀', '신장 하나',
 ];
 
+const WALL_DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];   // 0 동 1 남 2 서 3 북 (game.js 의 DIRS 와 같다)
+
+function objectOut(o, c, i) {
+  const out = { id: `o:${o.key}:${i}`, key: o.key, name: o.name, emoji: o.emoji, x: c.x, y: c.y,
+    where: o.where, use: o.use, moves: o.moves, desc: o.desc };
+  if (c.face !== undefined) out.face = c.face;
+  return out;
+}
+
 /**
  * 반영된 규칙 목록 → 플레이 가능한 월드.
  * @param {Array<{id:number, effects:Array}>} appliedRules 시간순
@@ -125,8 +134,9 @@ export function buildWorld(appliedRules, deaths = []) {
   const rand = prng(seed);
 
   const size = state.mazeSize;
+  const layout = state.layout ?? (size <= 5 ? 'room' : 'maze');
   // 크기 5 = 사실상 빈 방. 최초 상태의 "아무것도 없는 빈 공간".
-  const grid = size <= 5 ? emptyRoom(size) : generateMaze(size, rand);
+  const grid = layout === 'room' ? emptyRoom(size) : generateMaze(size, rand);
 
   const spawn = { x: 1.5, y: 1.5 };
   const dist = bfsDistances(grid, 1, 1);
@@ -162,16 +172,8 @@ export function buildWorld(appliedRules, deaths = []) {
 
   const objects = [];
   for (const o of state.objects) {
-    take(o.count).forEach((c, i) => {
-      objects.push({ id: `o:${o.key}:${i}`, key: o.key, name: o.name, emoji: o.emoji, x: c.x, y: c.y });
-    });
-  }
-
-  // 여기서 죽은 사람들. 모든 take() 가 끝난 뒤에 얹어야 사망 기록이 다른 배치를 흔들지 않는다.
-  for (const d of deaths.slice(0, 30)) {
-    const c = nearestFloor(grid, d.x, d.y);
-    if (!c || (c.x === 1 && c.y === 1) || (exit && c.x === exit.x && c.y === exit.y)) continue;
-    corpses.push(c);
+    if (o.where !== 'anywhere') continue;
+    take(o.count).forEach((c, i) => objects.push(objectOut(o, c, i)));
   }
 
   const items = [];
@@ -185,6 +187,61 @@ export function buildWorld(appliedRules, deaths = []) {
     ? BODY_PARTS[Math.floor(rand() * BODY_PARTS.length)]
     : null;
 
+  // ── 말 그대로 배치. 기존 배치와 rand 순서를 흔들지 않도록 전부 여기서 한다.
+  const used = new Set(['1,1', ...(exit ? [`${exit.x},${exit.y}`] : []),
+    ...monsters.map((m) => `${Math.floor(m.x)},${Math.floor(m.y)}`),
+    ...traps.map((t) => `${t.x},${t.y}`), ...corpses.map((c) => `${c.x},${c.y}`),
+    ...items.map((it) => `${Math.floor(it.x)},${Math.floor(it.y)}`),
+    ...objects.map((o) => `${o.x},${o.y}`)]);
+  const nearest = (sx, sy) => {
+    const d = bfsDistances(grid, sx, sy);
+    const list = [];
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (d[y][x] > 0) list.push({ x, y, d: d[y][x] });
+    return list.sort((a, b) => a.d - b.d || a.y - b.y || a.x - b.x);
+  };
+  const takeFrom = (list, n) => {
+    const out = [];
+    for (const c of list) {
+      if (out.length === n) break;
+      const k = `${c.x},${c.y}`;
+      if (used.has(k)) continue;
+      used.add(k);
+      out.push({ x: c.x, y: c.y });
+    }
+    return out;
+  };
+  const nearStart = nearest(1, 1);
+  const nearExit = exit ? nearest(exit.x, exit.y) : null;
+  // 벽면 후보: (바닥 칸, 방향) 중 그 방향이 벽. face 는 벽에서 바닥을 향하는 방향.
+  const faces = [];
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    if (grid[y][x] !== 0) continue;
+    WALL_DIRS.forEach(([dx, dy], d) => {
+      const wx = x + dx, wy = y + dy;
+      if (wx >= 0 && wy >= 0 && wx < size && wy < size && grid[wy][wx] === 1) faces.push({ x: wx, y: wy, face: (d + 2) % 4 });
+    });
+  }
+  for (let i = faces.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [faces[i], faces[j]] = [faces[j], faces[i]];
+  }
+  let faceCursor = 0;
+  for (const o of state.objects) {
+    if (o.where === 'anywhere') continue;
+    let cells;
+    if (o.where === 'wall') cells = faces.slice(faceCursor, (faceCursor += o.count));
+    else if (o.where === 'exit' && nearExit) cells = takeFrom(nearExit, o.count);
+    else cells = takeFrom(nearStart, o.count);   // entrance, 또는 출구가 없는 방의 exit
+    cells.forEach((c, i) => objects.push(objectOut(o, c, i)));
+  }
+
+  // 여기서 죽은 사람들. 모든 배치가 끝난 뒤에 얹어야 사망 기록이 다른 배치를 흔들지 않는다.
+  for (const d of deaths.slice(0, 30)) {
+    const c = nearestFloor(grid, d.x, d.y);
+    if (!c || (c.x === 1 && c.y === 1) || (exit && c.x === exit.x && c.y === exit.y)) continue;
+    corpses.push(c);
+  }
+
   return {
     seed,
     size,
@@ -196,6 +253,8 @@ export function buildWorld(appliedRules, deaths = []) {
     corpses,
     items,
     objects,
+    layout,
+    monsterLook: state.monsterLook,
     demandedPart,
     state,
     ruleCount: appliedRules.length,
