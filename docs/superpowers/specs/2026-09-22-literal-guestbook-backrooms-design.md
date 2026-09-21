@@ -325,3 +325,29 @@ export const EVENTS = {
 - 이미지 모델은 `gemini-3.1-flash-lite-image` (1K, 장당 $0.0336) 유지. Batch API 는 쓰지 않는다 (결과가 최대 24시간 지연, 이 규모에서 복잡도 대비 이득이 작다).
 - 판정 모델은 유지 (품질·차단 판정 우선).
 - ambientCG 텍스처를 라이브러리(`kind: texture`)에도 등록해 `surface.look` 이 태그 매칭으로 무료 적용되게 한다.
+
+## 17. 물체가 나를 쳐다보는 방식 (계획 3)
+
+| 종류 | 그리는 방식 |
+|---|---|
+| 벽 물체 (`where: wall`) | 벽 텍스처 위에 **평평한 decal** (§5.2 의 decal 방식) |
+| 바닥에 놓인 것 (`pose: lie`) · 줍는 아이템(권총·칼·지도) | 바닥 casting 에서 그 칸에 **눕힌 decal** |
+| 서 있는 물건 (`pose: stand`, `moves: still`) | **방향이 고정된 판** — id 해시로 정한 각도, 옆에서 보면 얇아진다 |
+| 움직이는 물체 (`wander`/`follow`) · 괴물 | 지금처럼 **billboard** (늘 나를 본다) |
+
+- `object.spawn` 에 `pose: 'stand' | 'lie'` 추가. 기본 `stand`. `where: wall` 이거나 `moves` 가 `still` 이 아니면 `stand` 로 강제. 프롬프트 단서: "바닥에 놓인/떨어진/깔린/누운" → `lie`.
+- decal·판은 이미지가 있으면 이미지, 없으면 이모지를 128px 캔버스에 그린 것. 기괴 보정 필터를 미리 입힌다.
+- 줍는 아이템의 이미지가 없으면 🔫 🔪 🗺️ 이모지 decal (기존 코드 도형은 쓰지 않는다).
+
+## 18. 텍스처 파일 (계획 3)
+
+`assets/textures/` (ambientCG CC0, 512px 로 줄임):
+
+| 파일 | 원본 | 쓰임 |
+|---|---|---|
+| `wall.jpg` | Wallpaper001A (흰 우드칩) | 누런 톤 + 코드로 얼룩·세로 줄무늬·걸레받이를 덧입힌다 |
+| `floor.jpg` | Fabric028 (얼룩진 카펫) | 누런 톤 + 얼룩 |
+| `ceil.jpg` | OfficeCeiling004 (발광 패널 격자) | **형광등 칸에만** 패널 하나를 잘라 쓴다. 나머지 천장은 절차적 타일 |
+| `door.jpg` | PaintedWood005 (긁힌 어두운 나무) | 문 |
+
+- §6 의 "ambientCG 텍스처를 라이브러리(`kind: texture`)에도 등록" 은 하지 않는다. 기본 표면이 이미 이 파일들이라 매칭 대상에 넣을 이득이 없다.
