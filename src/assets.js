@@ -30,6 +30,9 @@ export const ITEM_ASSETS = {
   map: { key: 'item:map', name: '지도', tags: ['map', 'paper', 'crumpled'] },
 };
 
+/** 설정 문제(키 없음 등). 그 물체의 실패가 아니라서 기록하지 않는다. */
+const notConfigured = (msg) => Object.assign(new Error(msg), { notConfigured: true });
+
 const EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 
 /** 받은 게 정말 이미지인지. 200 에 HTML 에러를 주는 곳이 있다. */
@@ -58,7 +61,7 @@ export const GENERATORS = {
   /* 판정과 같은 GEMINI_API_KEY 를 쓴다. 이미지 모델은 무료 한도가 없다 (장당 과금). */
   async gemini(prompt) {
     const key = process.env.GEMINI_API_KEY;
-    if (!key) throw new Error('GEMINI_API_KEY 가 없습니다');
+    if (!key) throw notConfigured('GEMINI_API_KEY 가 없습니다');
     const model = process.env.IMAGE_MODEL || 'gemini-3.1-flash-lite-image';
     const base = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com';
     const res = await fetch(`${base}/v1beta/interactions`, {
@@ -76,7 +79,7 @@ export const GENERATORS = {
   /* 익명 사용은 막혔다. POLLINATIONS_API_KEY 가 있을 때만. Gemini 한도를 넘었을 때 쓴다. */
   async pollinations(prompt) {
     const key = process.env.POLLINATIONS_API_KEY;
-    if (!key) throw new Error('POLLINATIONS_API_KEY 가 없습니다');
+    if (!key) throw notConfigured('POLLINATIONS_API_KEY 가 없습니다');
     const url = `https://gen.pollinations.ai/image/${encodeURIComponent(prompt)}?width=512&height=512`;
     const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(90_000) });
     if (!res.ok) throw new Error(`pollinations ${res.status}`);
@@ -145,23 +148,25 @@ async function doResolve(obj, { generators = GENERATORS, library = loadLibrary()
   const m = matchTags(obj.tags, pool);
   if (m.score >= MATCH_MIN) return save('match', m.entry.file, 'ready');
 
-  // 만들 생각이 없는 설정이면 실패를 남기지 않는다. 나중에 켜면 그때 만든다.
   const order = generatorOrder(now);
-  if (!order.length) return { key: obj.key, tags: obj.tags.join(','), source: 'none', file: null, status: 'failed', created_at: now };
-
   const prompt = `${(obj.tags.length ? obj.tags : [obj.name]).join(', ')}, ${STYLE}`;
+  let tried = false;
   for (const name of order) {
     try {
-      if (!generators[name]) throw new Error('생성기가 없습니다');
+      if (!generators[name]) throw notConfigured('생성기가 없습니다');
       const img = await generators[name](prompt);
       const file = `${hashKey(obj.key)}.${img.ext}`;
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, file), img.data);
       return save(name, `/obj/${file}`, 'ready');
     } catch (e) {
+      if (!e.notConfigured) tried = true;
       console.error(`[asset:${name}]`, obj.key, e.message);
     }
   }
+  // 실제로 만들어 보다 실패했을 때만 남긴다. 키가 없거나, 만들지 않는 설정이거나,
+  // 한도 때문에 건너뛰었다면 그건 이 물체 탓이 아니다. 다음에 다시 시도한다.
+  if (!tried) return { key: obj.key, tags: obj.tags.join(','), source: 'none', file: null, status: 'failed', created_at: now };
   return save('none', null, 'failed');
 }
 

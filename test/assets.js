@@ -80,6 +80,21 @@ r = await resolveAsset(obj('안만듦', ['nothing']), { generators: gens, librar
 check(r.status === 'failed' && !q.assetByKey.get('안만듦'), 'IMAGE_PROVIDER=none 이면 실패를 남기지 않는다 (나중에 켜면 다시 시도)');
 process.env.IMAGE_PROVIDER = 'gemini';
 
+// 설정 문제(키 없음·한도로 건너뜀)는 그 물체의 실패가 아니다. 남기지 않아야 나중에 다시 만든다.
+const noKey = (name) => async () => { calls.push({ name }); throw Object.assign(new Error('키 없음'), { notConfigured: true }); };
+r = await resolveAsset(obj('키없음', ['nokey']), {
+  generators: { gemini: noKey('gemini'), pollinations: noKey('pollinations') }, library: [], now: Date.now() + 4 * 86_400_000,
+});
+check(r.status === 'failed' && !q.assetByKey.get('키없음'), '키가 없어서 못 만들었으면 실패를 남기지 않는다');
+r = await resolveAsset(obj('한도초과', ['overlimit']), {
+  generators: { gemini: gen('gemini'), pollinations: noKey('pollinations') }, library: [],
+});
+check(r.status === 'failed' && !q.assetByKey.get('한도초과'), '한도를 넘긴 날 pollinations 키가 없으면 남기지 않는다 (내일 다시)');
+r = await resolveAsset(obj('반반', ['half']), {
+  generators: { gemini: gen('gemini', false), pollinations: noKey('pollinations') }, library: [], now: Date.now() + 5 * 86_400_000,
+});
+check(r.status === 'failed' && q.assetByKey.get('반반')?.status === 'failed', '실제로 호출해서 실패했으면 남긴다');
+
 // ── imgFor ──────────────────────────────────────────────
 check(imgFor('웃는 가면') === '/lib/mask.png', 'ready 면 URL');
 check(imgFor('손') === null && imgFor('없는것') === null, 'failed·없음이면 null');
@@ -115,10 +130,10 @@ check(await fails(GENERATORS.gemini('x')), 'gemini: 이미지가 없으면 실�
 reply = () => new Response('quota', { status: 429 });
 check(await fails(GENERATORS.gemini('x')), 'gemini: 429 면 실패');
 delete process.env.GEMINI_API_KEY;
-check(await fails(GENERATORS.gemini('x')), 'gemini: 키가 없으면 실패');
+check(await GENERATORS.gemini('x').then(() => false, (e) => e.notConfigured === true), 'gemini: 키가 없으면 설정 문제로 실패');
 
 reply = () => new Response(Buffer.alloc(500, 1), { status: 200, headers: { 'content-type': 'image/jpeg' } });
-check(await fails(GENERATORS.pollinations('x')), 'pollinations: 키가 없으면 부르지 않고 실패');
+check(await GENERATORS.pollinations('x').then(() => false, (e) => e.notConfigured === true), 'pollinations: 키가 없으면 부르지 않고 설정 문제로 실패');
 process.env.POLLINATIONS_API_KEY = 'pk';
 img = await GENERATORS.pollinations('eye, uncanny');
 check(img.ext === 'jpg' && lastUrl.startsWith('https://gen.pollinations.ai/image/eye%2C%20uncanny'), 'pollinations: jpeg 를 받는다');
