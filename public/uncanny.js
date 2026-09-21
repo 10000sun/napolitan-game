@@ -86,3 +86,34 @@ export function drawUncanny(c, { canvas, emoji }, cx, bottom, w, h, fog, stretch
   }
   c.restore();
 }
+
+const emojiCache = new Map();
+
+/** 이모지를 128px 캔버스에. 이미지가 없을 때 대신 쓴다. */
+export function emojiCanvas(emoji) {
+  if (emojiCache.has(emoji)) return emojiCache.get(emoji);
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.font = '104px serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(emoji || '❔', 64, 70);
+  emojiCache.set(emoji, c);
+  return c;
+}
+
+const decalCache = new Map();
+
+/** 벽·바닥에 붙일 픽셀. 기괴 보정을 미리 입힌다. */
+export function decalPixels(key, source, emoji) {
+  if (decalCache.has(key)) return decalCache.get(key);
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  if (FILTER_OK) g.filter = 'grayscale(.7) sepia(.45) contrast(1.3)';
+  g.drawImage(source || emojiCanvas(emoji), 0, 0, 128, 128);
+  const out = { data: g.getImageData(0, 0, 128, 128).data, size: 128 };
+  decalCache.set(key, out);
+  return out;
+}
