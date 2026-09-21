@@ -201,7 +201,9 @@ async function endRun(result) {
     btn.textContent = '공책에 한 줄 남긴다';
     btn.onclick = openBook;
   } else {
-    try { await api(`/api/run/${runId}/die`, { method: 'POST' }); } catch (e) { console.warn(e); }
+    try {
+      await api(`/api/run/${runId}/die`, { method: 'POST', body: JSON.stringify({ x: result.x, y: result.y }) });
+    } catch (e) { console.warn(e); }
     title.textContent = '나오지 못했다';
     text.textContent = `${result.reason || '죽었다.'} 당신의 몸도 이제 저 안에 쌓인 것들 중 하나가 된다.`;
     btn.textContent = '현관으로';

@@ -7,6 +7,8 @@
 // 아무도 둘러보지 않는다.
 // ─────────────────────────────────────────────────────────────
 
+import { sprite, drawUncanny, stretchFor } from '/uncanny.js';
+
 const TAU = Math.PI * 2;
 
 const COLORS = {
@@ -120,6 +122,13 @@ export class Game {
     this.items = world.items.filter((it) => !it.auto)
       .map((it) => ({ ...it, x: Math.floor(it.x), y: Math.floor(it.y), taken: false }));
     this.baits = [];
+
+    // 방명록 물체. 규칙에는 영향 없이 서 있기만 한다.
+    this.objects = (world.objects || []).map((o) => ({
+      ...o, dx: 0, dy: 0, stretch: stretchFor(o.id), wasVisible: false, visible: false,
+    }));
+    for (const o of this.objects) sprite(o.img);
+    for (const it of this.items) sprite(it.img);
 
     this.seen = Array.from({ length: this.size }, () => Array(this.size).fill(this.mapKnown));
 
@@ -454,7 +463,7 @@ export class Game {
   die(reason) {
     if (this.dead || this.won) return;
     this.dead = true;
-    this.hooks.onEnd?.({ won: false, reason, lostParts: this.lostParts });
+    this.hooks.onEnd?.({ won: false, reason, lostParts: this.lostParts, x: this.cx, y: this.cy });
   }
 
   /* ── 턴 넘기기 ─────────────────────────────────── */
@@ -553,6 +562,10 @@ export class Game {
     if (this.traps.some((t) => !t.sprung && this.s.mapTraps && t.x === a.x && t.y === a.y)) {
       bits.push('지도에 따르면 앞 칸에 함정이 있다.');
     }
+    const obj = this.objects.find((o) => o.x === this.cx && o.y === this.cy);
+    if (obj) bits.push(`${obj.name}이(가) 있다.`);
+    const front = !this.wall(a.x, a.y) && this.objects.find((o) => o.x === a.x && o.y === a.y);
+    if (front) bits.push(`앞에 ${front.name} 같은 것이 서 있다.`);
 
     this.log(bits.join(' '));
   }
@@ -676,7 +689,10 @@ export class Game {
     }
     for (const it of this.items) {
       if (it.taken) continue;
-      out.push({ kind: it.kind, x: it.x + 0.5, y: it.y + 0.5, h: 0.22, w: 0.4, ground: true });
+      out.push({ kind: it.kind, ref: it, x: it.x + 0.5, y: it.y + 0.5, h: 0.22, w: 0.4, ground: true });
+    }
+    for (const o of this.objects) {
+      out.push({ kind: 'object', ref: o, x: o.x + 0.5 + o.dx, y: o.y + 0.5 + o.dy, h: 0.7, w: 0.6, ground: true });
     }
     for (const t of this.traps) {
       if (this.s.mapTraps && !t.sprung) {
@@ -699,6 +715,7 @@ export class Game {
     const planeX = -dirY * this.fov, planeY = dirX * this.fov;
     const invDet = 1 / (planeX * dirY - dirX * planeY);
 
+    for (const o of this.objects) o.visible = false;
     const sprites = this.collectSprites()
       .map((s) => ({ ...s, d2: (s.x - this.px) ** 2 + (s.y - this.py) ** 2 }))
       .sort((a, b) => b.d2 - a.d2);
@@ -737,15 +754,32 @@ export class Game {
       c.beginPath();
       for (const [a, b] of runs) c.rect(a, 0, b - a + 1, rh);
       c.clip();
-      this.paintSprite(s.kind, screenX, top, bottom, w, fog, ty);
+      if (s.kind === 'object') s.ref.visible = true;
+      this.paintSprite(s.kind, screenX, top, bottom, w, fog, ty, s.ref);
       c.restore();
+    }
+
+    // 눈을 뗀 사이에 조금 옮겨 가 있다.
+    for (const o of this.objects) {
+      if (o.wasVisible && !o.visible) {
+        o.dx = (Math.random() - 0.5) * 0.3;
+        o.dy = (Math.random() - 0.5) * 0.3;
+      }
+      o.wasVisible = o.visible;
     }
   }
 
-  paintSprite(kind, cx, top, bottom, w, fog, dist) {
+  paintSprite(kind, cx, top, bottom, w, fog, dist, ref) {
     const c = this.ctx;
     const h = bottom - top;
     const dim = (rgb, k = 1) => `rgb(${rgb.map((v) => Math.round(Math.min(255, v * fog * k))).join(',')})`;
+
+    // 방명록 물체, 또는 모습이 준비된 아이템. 아이템은 모습이 없으면 아래의 도형으로 떨어진다.
+    const canvas = sprite(ref?.img);
+    if (kind === 'object' || canvas) {
+      drawUncanny(c, { canvas, emoji: ref.emoji }, cx, bottom, w, h, fog, ref.stretch ?? stretchFor(ref.id));
+      return;
+    }
 
     if (kind === 'monster') {
       // 비쩍 마른 실루엣. 어깨가 좁고, 팔이 무릎보다 아래까지 내려온다.
