@@ -87,9 +87,9 @@ app.post('/api/guestbook', requireUser, async (req, res) => {
   );
   q.useRunEntry.run(run.id);
 
-  // 물체의 모습은 뒤에서 확보한다. 응답은 기다리지 않는다.
+  // 물체와 괴물의 모습은 뒤에서 확보한다. 응답은 기다리지 않는다.
   for (const e of verdict.effects) {
-    if (e.type !== 'object.spawn') continue;
+    if (e.type !== 'object.spawn' && e.type !== 'entity.monster_look') continue;
     const o = normalizeObject(e);
     if (o) resolveAsset(o).catch((err) => console.error('[asset]', err.message));
   }
@@ -109,6 +109,7 @@ app.post('/api/run/start', requireUser, (req, res) => {
   // 모습은 DB 에서 꺼내기만 한다. 여기서는 아무것도 새로 만들지 않는다.
   world.objects = world.objects.map((o) => ({ ...o, img: imgFor(o.key) }));
   world.items = world.items.map((it) => ({ ...it, img: ITEM_ASSETS[it.kind] ? imgFor(ITEM_ASSETS[it.kind].key) : null }));
+  if (world.monsterLook) world.monsterLook = { ...world.monsterLook, img: imgFor(world.monsterLook.key) };
   const run = q.insertRun.get(req.user.id, world.seed, rules.length, Date.now());
 
   // 요구하는 신체 부위는 월드에 담아 그대로 내려보낸다. 엔진이 문을 열지 말지
