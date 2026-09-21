@@ -30,8 +30,59 @@ export const ITEM_ASSETS = {
   map: { key: 'item:map', name: '지도', tags: ['map', 'paper', 'crumpled'] },
 };
 
-/** Task 4 에서 채운다. */
-export const GENERATORS = {};
+const EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+
+/** 받은 게 정말 이미지인지. 200 에 HTML 에러를 주는 곳이 있다. */
+export function toImage(data, mime) {
+  const ext = EXT[String(mime || '').split(';')[0].trim().toLowerCase()];
+  if (!ext || data.length < 100 || data.length > 5_000_000) {
+    throw new Error(`이미지가 아닌 응답 (${mime}, ${data.length}B)`);
+  }
+  return { data, ext };
+}
+
+/** 응답 어딘가에 든 이미지 한 장. Interactions({type:'image'}) 와 generateContent(inlineData) 둘 다 본다. */
+function findImage(node) {
+  if (!node || typeof node !== 'object') return null;
+  if (node.type === 'image' && node.data) return { data: node.data, mime: node.mime_type };
+  if (node.inlineData?.data) return { data: node.inlineData.data, mime: node.inlineData.mimeType };
+  for (const v of Object.values(node)) {
+    const hit = findImage(v);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** 이미지 생성기. llm.js 와 같은 식으로 갈아끼운다. */
+export const GENERATORS = {
+  /* 판정과 같은 GEMINI_API_KEY 를 쓴다. 이미지 모델은 무료 한도가 없다 (장당 과금). */
+  async gemini(prompt) {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) throw new Error('GEMINI_API_KEY 가 없습니다');
+    const model = process.env.IMAGE_MODEL || 'gemini-3.1-flash-lite-image';
+    const base = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com';
+    const res = await fetch(`${base}/v1beta/interactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify({ model, input: prompt }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!res.ok) throw new Error(`gemini ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const img = findImage(await res.json());
+    if (!img) throw new Error('gemini: 응답에 이미지가 없습니다');
+    return toImage(Buffer.from(img.data, 'base64'), img.mime);
+  },
+
+  /* 익명 사용은 막혔다. POLLINATIONS_API_KEY 가 있을 때만. Gemini 한도를 넘었을 때 쓴다. */
+  async pollinations(prompt) {
+    const key = process.env.POLLINATIONS_API_KEY;
+    if (!key) throw new Error('POLLINATIONS_API_KEY 가 없습니다');
+    const url = `https://gen.pollinations.ai/image/${encodeURIComponent(prompt)}?width=512&height=512`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(90_000) });
+    if (!res.ok) throw new Error(`pollinations ${res.status}`);
+    return toImage(Buffer.from(await res.arrayBuffer()), res.headers.get('content-type'));
+  },
+};
 
 /** 태그 겹침(Jaccard)으로 가장 비슷한 것. 빈 태그는 아무것과도 맞지 않는다. */
 export function matchTags(tags, candidates) {

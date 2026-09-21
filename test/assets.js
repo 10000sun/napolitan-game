@@ -82,5 +82,52 @@ const jelly = q.assetByKey.get('젤리').file;
 fs.rmSync(path.join(process.env.ASSET_DIR, path.basename(jelly)));
 check(imgFor('젤리') === null, '파일이 지워졌으면 null');
 
+// ── 생성기 어댑터 (fetch 가로채기) ───────────────────────
+const { GENERATORS, toImage } = await import('../src/assets.js');
+const { tagsFromFilename } = await import('../scripts/tag-assets.js');
+const realFetch = globalThis.fetch;
+let reply = null, lastUrl = '', lastOpts = {}, lastBody = null;
+globalThis.fetch = async (url, opts = {}) => {
+  lastUrl = String(url); lastOpts = opts; lastBody = opts.body ? JSON.parse(opts.body) : null; return reply();
+};
+const fails = (p) => p.then(() => false, () => true);
+
+const pngB64 = Buffer.alloc(300, 7).toString('base64');
+process.env.GEMINI_API_KEY = 'k';
+reply = () => new Response(JSON.stringify({ steps: [{ type: 'model_output', content: [
+  { type: 'text', text: 'hi' }, { type: 'image', data: pngB64, mime_type: 'image/png' }] }] }), { status: 200 });
+let img = await GENERATORS.gemini('mask, uncanny');
+check(img.ext === 'png' && img.data.length === 300, 'gemini: Interactions 응답의 image 를 꺼낸다');
+check(lastUrl.endsWith('/v1beta/interactions') && lastBody.input === 'mask, uncanny'
+  && lastBody.model === 'gemini-3.1-flash-lite-image', 'gemini: 모델과 프롬프트가 본문에');
+check(lastOpts.headers['x-goog-api-key'] === 'k', 'gemini: 키는 헤더로');
+
+reply = () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: pngB64 } }] } }] }), { status: 200 });
+check((await GENERATORS.gemini('x')).ext === 'png', 'gemini: generateContent 모양의 응답도 읽는다');
+
+reply = () => new Response(JSON.stringify({ steps: [{ type: 'model_output', content: [{ type: 'text', text: '거절' }] }] }), { status: 200 });
+check(await fails(GENERATORS.gemini('x')), 'gemini: 이미지가 없으면 실패');
+reply = () => new Response('quota', { status: 429 });
+check(await fails(GENERATORS.gemini('x')), 'gemini: 429 면 실패');
+delete process.env.GEMINI_API_KEY;
+check(await fails(GENERATORS.gemini('x')), 'gemini: 키가 없으면 실패');
+
+reply = () => new Response(Buffer.alloc(500, 1), { status: 200, headers: { 'content-type': 'image/jpeg' } });
+check(await fails(GENERATORS.pollinations('x')), 'pollinations: 키가 없으면 부르지 않고 실패');
+process.env.POLLINATIONS_API_KEY = 'pk';
+img = await GENERATORS.pollinations('eye, uncanny');
+check(img.ext === 'jpg' && lastUrl.startsWith('https://gen.pollinations.ai/image/eye%2C%20uncanny'), 'pollinations: jpeg 를 받는다');
+check(lastOpts.headers.Authorization === 'Bearer pk' && !lastUrl.includes('pk'), 'pollinations: 키는 헤더로만');
+
+reply = () => new Response('<html>rate limited</html>', { status: 200, headers: { 'content-type': 'text/html' } });
+check(await fails(GENERATORS.pollinations('x')), 'pollinations: 200 이어도 이미지가 아니면 실패');
+
+check(await fails(Promise.resolve().then(() => toImage(Buffer.alloc(10), 'image/png'))), '너무 작은 이미지는 거부');
+check(await fails(Promise.resolve().then(() => toImage(Buffer.alloc(6e6), 'image/png'))), '5MB 넘는 이미지는 거부');
+globalThis.fetch = realFetch;
+
+// ── 라이브러리 태깅 ──────────────────────────────────────
+check(JSON.stringify(tagsFromFilename('slime_green-02.png')) === '["slime","green"]', '파일명에서 태그 초안');
+
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);
