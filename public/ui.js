@@ -166,12 +166,12 @@ function renderHud(h) {
     : `몸 <b class="${h.hp <= 35 ? 'low' : ''}">${h.hp}</b>`;
 
   const gear = [];
-  if (h.hasPistol) gear.push(`${h.rangedName || '권총'} <b>${h.ammo}</b>`);
+  if (h.hasPistol) gear.push(`${escapeHtml(h.rangedName || '권총')} <b>${h.ammo}</b>`);   // 이름은 방명록에서 온다
   if (h.hasKnife) gear.push('칼');
   if (h.corpse > 0) gear.push(`시체 <b>${h.corpse}</b>구`);
   $('hud-gear').innerHTML = gear.join(' · ');
 
-  $('hud-turns').innerHTML = h.lost?.length ? `없음 <b class="low">${h.lost.join(', ')}</b>` : '';
+  $('hud-turns').innerHTML = h.lost?.length ? `없음 <b class="low">${escapeHtml(h.lost.join(', '))}</b>` : '';
 }
 
 function flashRed() {
