@@ -7,6 +7,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import { foldEffects } from './effects.js';
+import { BODY_PARTS } from '../public/body.js';
 
 /** mulberry32 — 짧고 시드 재현성이 확실한 PRNG. */
 function prng(seed) {
@@ -105,11 +106,6 @@ export function deathCell(body, size) {
   const ok = Number.isInteger(x) && Number.isInteger(y) && x >= 0 && y >= 0 && x < size && y < size;
   return ok ? { x, y } : null;
 }
-
-const BODY_PARTS = [
-  '머리카락 한 움큼', '왼쪽 새끼손가락', '오른쪽 검지손가락', '왼쪽 손목', '오른쪽 팔',
-  '왼쪽 발목', '오른쪽 다리', '왼쪽 귀', '앞니 두 개', '오른쪽 눈', '혀', '신장 하나',
-];
 
 const WALL_DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];   // 0 동 1 남 2 서 3 북 (game.js 의 DIRS 와 같다)
 
