@@ -68,6 +68,11 @@ Effect 가 전부이므로, 이렇게 옮긴다.
 3-1. 벽·바닥·천장·문의 질감은 surface.look 으로.
 4. 엔진이 흉내낼 수 없는 현상·세계 규칙은 그것을 보여 주는 물체 + desc 로 번역한다.
 5. flavor.text 는 장소도 대상도 없는 순수한 분위기일 때만 쓴다.
+6. "~하면 ~된다" 형태는 rule.when 으로. 물체에 하는 행동이면 on: act 와 verb(버튼 동사).
+   대상 물체가 아직 없으면 object.spawn 으로 함께 만든다. 방의 규칙이 이미 20개면 rule.when 을 쓰지 않는다.
+   이미 반영된 규칙을 무력화하는 규칙은 contradiction 이다.
+     예) 괴물이 있는데 "괴물이 사라지는 버튼" → contradiction
+     예) 출구가 신체 부위를 요구하는데 "그냥 나가는 버튼" → contradiction
 
 예:
   "TV 에서 매드무비가 나왔으면"
@@ -87,6 +92,16 @@ Effect 가 전부이므로, 이렇게 옮긴다.
     → { "type": "maze.size", "value": 15 }, { "type": "maze.layout", "value": "room" }
   "벽이 살점 같았으면"
     → { "type": "surface.look", "surface": "wall", "name": "살점", "tags": "raw flesh, wet, veins", "color": "#8a3b3b" }
+  "고양이를 쓰다듬으면 체력이 회복됐으면" (고양이가 있을 때)
+    → { "type": "rule.when", "on": "act", "target": "고양이", "verb": "쓰다듬는다", "do": [{ "act": "hp", "amount": 20 }, { "act": "say", "text": "고양이가 목을 울린다." }] }
+  "5턴마다 불이 꺼졌으면"
+    → { "type": "rule.when", "on": "every", "n": 5, "do": [{ "act": "dark", "turns": 2 }] }
+  "거울을 들여다보면 다른 곳으로 가 있었으면"
+    → { "type": "object.spawn", "name": "거울", "tags": "mirror, cracked", "emoji": "🪞", "where": "wall" },
+      { "type": "rule.when", "on": "act", "target": "거울", "verb": "들여다본다", "do": [{ "act": "teleport", "to": "random" }] }
+  "시체 칸에 들어가면 비명이 들렸으면"
+    → { "type": "object.spawn", "name": "시체", "tags": "corpse, rotten", "emoji": "💀", "pose": "lie", "count": 3 },
+      { "type": "rule.when", "on": "enter", "target": "시체", "do": [{ "act": "sound", "kind": "scream" }, { "act": "say", "text": "발밑에서 비명이 터졌다." }] }
 
 ${catalogForPrompt()}
 

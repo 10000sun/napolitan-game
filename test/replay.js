@@ -117,7 +117,7 @@ check(!('hunger' in foldEffects([[{ type: 'rule.hunger', seconds: 60 }]])), '배
 // ── 말 그대로: 배치 ──────────────────────────────────────
 const snap = JSON.parse(fs.readFileSync(new URL('./fixtures/replay-final.json', import.meta.url)));
 const now = buildWorld(rules);
-const { layout: _l, monsterLook: _m, objects: _o1, surfaces: _s1, ...nowOld } = now;
+const { layout: _l, monsterLook: _m, objects: _o1, surfaces: _s1, rules: _r1, ...nowOld } = now;
 const { objects: _o2, ...snapOld } = snap;
 delete snapOld.state.hunger;
 delete nowOld.state.surfaces;
@@ -159,6 +159,16 @@ check(JSON.stringify(buildWorld(placeRules, [{ x: 1, y: 2 }, { x: 2, y: 1 }, { x
 
 check(buildWorld([{ id: 1, effects: [{ type: 'object.spawn', name: '종이', pose: 'lie' }] }]).objects[0].pose === 'lie', '월드에 자세가 실린다');
 check(JSON.stringify(buildWorld([{ id: 1, effects: [{ type: 'surface.look', surface: 'floor', name: '피웅덩이', color: '#551111' }] }]).surfaces?.floor?.color) === '"#551111"', '월드에 표면이 실린다');
+
+const rw = buildWorld([{ id: 1, effects: [
+  { type: 'object.spawn', name: '고양이', emoji: '🐈' },
+  { type: 'item.pistol', value: true },
+  { type: 'rule.when', on: 'act', target: '고양이', verb: '쓰다듬는다', do: [{ act: 'hp', amount: 10 }] },
+  { type: 'rule.when', on: 'act', target: '거울', verb: '본다', do: [{ act: 'say', text: 'x' }] },
+  { type: 'rule.when', on: 'pickup', target: '권총', do: [{ act: 'say', text: 'x' }] },
+  { type: 'rule.when', on: 'every', n: 3, do: [{ act: 'dark', turns: 1 }] },
+] }]);
+check(rw.rules?.length === 3 && !rw.rules.some((r) => r.target === '거울'), '방에 없는 대상의 규칙은 빠진다 (권총은 아이템 이름으로 있다)');
 
 const crowd = buildWorld([{ id: 1, effects: Array.from({ length: 30 }, (_, i) => ({ type: 'object.spawn', name: `e${i}`, where: 'entrance', count: 5 })) }]);
 check(crowd.objects.length === 7, '빈 칸이 모자라면 놓을 수 있는 만큼만 (5×5 빈 방: 바닥 9 - 시작 - 출구)');

@@ -238,6 +238,11 @@ export function buildWorld(appliedRules, deaths = []) {
     corpses.push(c);
   }
 
+  // 방에 없는 것을 대상으로 한 규칙은 내려보내지 않는다.
+  const ITEM_KEYS = { pistol: '권총', knife: '칼', map: '지도' };
+  const present = new Set([...objects.map((o) => o.key), ...items.map((it) => ITEM_KEYS[it.kind])]);
+  const rules = state.rules.filter((r) => !r.target || present.has(r.target));
+
   return {
     seed,
     size,
@@ -252,6 +257,7 @@ export function buildWorld(appliedRules, deaths = []) {
     layout,
     monsterLook: state.monsterLook,
     surfaces: state.surfaces,
+    rules,
     demandedPart,
     state,
     ruleCount: appliedRules.length,
