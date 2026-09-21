@@ -77,6 +77,12 @@ check(lastReq.url === 'https://api.groq.com/openai/v1/chat/completions', 'BASE_U
 check(lastReq.headers.Authorization === 'Bearer gsk-test', 'Bearer 로 키를 보낸다');
 check(lastReq.body.messages[0].role === 'system', '시스템 프롬프트가 첫 메시지로 간다');
 
+// ── 프롬프트에 "말 그대로" 원칙이 실린다 ─────────────────
+say({ verdict: 'flavor_only', effects: [], reason: 'x' });
+await compileEntry('아무거나', [], initialState());
+const litSys = lastReq.body.system_instruction?.parts[0].text ?? lastReq.body.messages[0].content;   // 이 시점 제공자는 openai
+check(litSys.includes("말 그대로") && litSys.includes("\"where\": \"wall\"") && litSys.includes("maze.layout"), '프롬프트에 말 그대로 원칙과 예시');
+
 // ── object.spawn ────────────────────────────────────────
 const { normalizeObject, foldEffects } = await import('../src/effects.js');
 

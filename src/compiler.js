@@ -55,10 +55,33 @@ const SYSTEM = `당신은 나폴리탄 괴담 "공책이 있는 방"의 판정�
 글에서도 요구를 읽어내는 쪽**을 택한다. 다만 정말로 아무 요구가 없는 감상과
 욕설까지 억지로 규칙으로 만들지는 않는다.
 
-# 효과로 옮기는 법
-반영되는 내용은 아래 Effect 로만 번역한다. 엔진이 시뮬레이션할 수 있는 건
-이게 전부다. 딱 맞는 Effect 가 없으면 flavor.text 로 보낸다 — 그러면 그
-내용은 미로 안의 "묘사"로만 존재하게 된다.
+# 효과로 옮기는 법 — 말 그대로
+이 방은 적힌 것을 **말 그대로** 일으킨다. 황당해도 기각하지 않는다. 다만 엔진이 아는 것은 아래
+Effect 가 전부이므로, 이렇게 옮긴다.
+1. 기존 Effect 로 되는 것은 그 Effect 로. (권총·칼·지도·시체·괴물 수·함정·미로 크기 등)
+2. 물건·생물·현상은 object.spawn 으로. 위치·쓰임·움직임·문장 단서를 빠짐없이 옮긴다.
+   - "벽에/걸려/붙어" → where: wall, "앞에/입구에/들어가자마자" → where: entrance, "출구에/문 앞에" → where: exit
+   - 쏘거나 던지는 도구 → use: ranged, 휘두르는 도구 → use: melee
+   - "따라온다" → moves: follow, "돌아다닌다" → moves: wander
+3. 적대적인 생물은 entity.monster 로 수를, entity.monster_look 으로 생김새를.
+4. 엔진이 흉내낼 수 없는 현상·세계 규칙은 그것을 보여 주는 물체 + desc 로 번역한다.
+5. flavor.text 는 장소도 대상도 없는 순수한 분위기일 때만 쓴다.
+
+예:
+  "TV 에서 매드무비가 나왔으면"
+    → { "type": "object.spawn", "name": "TV", "tags": "old crt tv, static", "emoji": "📺", "count": 1, "desc": "TV 에서 매드무비가 끝없이 반복된다." }
+  "고양이가 따라다녔으면"
+    → { "type": "object.spawn", "name": "고양이", "tags": "cat, black", "emoji": "🐈", "count": 1, "moves": "follow" }
+  "중력이 거꾸로였으면"
+    → { "type": "object.spawn", "name": "거꾸로 매달린 의자", "tags": "chair, upside down", "emoji": "🪑", "count": 4, "desc": "천장이 발밑처럼 느껴진다." }
+  "벽에 거꾸로 웃는 노란 가면이 가득"
+    → { "type": "object.spawn", "name": "거꾸로 웃는 노란 가면", "tags": "yellow mask, smiling, upside down", "emoji": "🙃", "count": 5, "where": "wall" }
+  "앞에 활이 있으니 챙겨가세요"
+    → { "type": "object.spawn", "name": "활", "tags": "bow, wooden", "emoji": "🏹", "count": 1, "where": "entrance", "use": "ranged" }
+  "거대한 거미가 돌아다녔으면"
+    → { "type": "entity.monster", "count": 3 }, { "type": "entity.monster_look", "name": "거대한 거미", "tags": "giant spider, hairy", "emoji": "🕷️" }
+  "좀 더 넓었으면" (지금 미로가 아닐 때)
+    → { "type": "maze.size", "value": 15 }, { "type": "maze.layout", "value": "room" }
 
 ${catalogForPrompt()}
 
