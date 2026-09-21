@@ -187,14 +187,10 @@ export class Game {
   }
 
   _intro() {
-    if (this.w.ruleCount === 0) {
-      this.log('아무것도 없는 빈 공간이다. 저편에 문 하나가 덩그러니 서 있다.', 'sys');
-    } else {
-      this.log('공책에 적힌 것들이 이미 이곳에 와 있다.', 'sys');
-    }
+    // 방은 자기를 설명하지 않는다. 앞사람이 남긴 것들만 먼저 눈에 들어온다.
     for (const f of (this.s.flavor || []).slice(-3)) this.log(f, 'sys');
-    if (this.mapKnown) this.log('지도를 손에 쥐고 있다. 미로의 구조가 전부 그려져 있다.');
-    if (this.s.noPain) this.log('여기서는 아파지지 않는다. 그게 더 이상하다.', 'sys');
+    // 몸으로 알 수 없는 것만 알려준다. 나머지는 겪어서 알아낸다.
+    if (this.mapKnown) this.log('손에 지도가 들려 있다.');
     if (this.turnsLeft) this.log(`배가 고프다. ${this.turnsLeft}번쯤 더 움직이면 한계다.`, 'bad');
     this.describe();
   }

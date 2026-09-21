@@ -110,15 +110,7 @@ html, body {
 .empty-book { padding: 60px 26px; text-align: center; color: rgba(26,22,20,.4); line-height: 2; }
 
 /* ── 기입 ─────────────────────────────────────────── */
-.write-box { border-top: 3px double rgba(26,22,20,.25); padding: 20px 26px; background: var(--paper-dark); }
-.write-hint { font-size: 13px; line-height: 1.9; color: rgba(26,22,20,.7); margin-bottom: 12px; }
-.write-hint strong { color: var(--blood); }
-
-#write-text {
-  width: 100%; resize: vertical;
-  font-family: 'Gowun Batang', serif; font-size: 15px; line-height: 1.8;
-  padding: 12px; border: 1px solid rgba(26,22,20,.3); background: rgba(255,255,255,.35); color: var(--ink);
-}
+.write-box { border-top: 3px double rgba(26,22,20,.25); padding: 22px 26px; background: var(--paper-dark); }
 #write-text:focus { outline: 2px solid var(--blood); outline-offset: -1px; }
 
 .write-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
