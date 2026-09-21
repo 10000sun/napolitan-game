@@ -9,13 +9,21 @@
 
 const TAU = Math.PI * 2;
 
+/** 좌표에서 0~1 을 뽑는다. 같은 자리는 언제나 같은 값이라 얼룩이 흔들리지 않는다. */
+function hash3(x, y, z) {
+  let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(z | 0, 1442695041);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
 const COLORS = {
-  wallLight: [96, 87, 76],
-  wallDark: [62, 56, 49],
-  ceil: [22, 19, 17],
-  floor: [38, 34, 30],
+  wallLight: [88, 86, 79],
+  wallDark: [52, 51, 47],
+  wallRust: [104, 58, 29],
+  ceil: [15, 15, 14],
+  floor: [38, 37, 33],
   monster: [122, 30, 26],
-  corpse: [78, 70, 58],
+  corpse: [56, 51, 43],
   pistol: [150, 145, 130],
   knife: [170, 170, 175],
   exit: [190, 160, 70],
@@ -126,6 +134,16 @@ export class Game {
     this.zBuf = [];
     this.raf = 0;
     this.lastT = 0;
+    this.flicker = 1;
+    this.t = 0;
+    // 공기 중에 떠 있는 것들. 화면이 완전히 정지해 보이지 않게 한다.
+    this.dust = Array.from({ length: 46 }, () => ({
+      x: Math.random(), y: Math.random(),
+      r: 0.4 + Math.random() * 1.1,
+      vx: (Math.random() - 0.5) * 0.012,
+      vy: 0.004 + Math.random() * 0.014,
+      a: 0.06 + Math.random() * 0.16,
+    }));
 
     this._onResize = () => this._resize();
     this._onKey = (e) => this._hotkey(e);
@@ -197,6 +215,16 @@ export class Game {
 
   /* ── 카메라 ───────────────────────────────────── */
   stepCamera(dt) {
+    this.t += dt;
+    // 어딘가의 불빛이 일정하지 않다
+    this.flicker = 0.93 + 0.07 * Math.sin(this.t * 2.3)
+      + 0.035 * Math.sin(this.t * 11.7) + 0.02 * Math.sin(this.t * 29.1);
+    for (const p of this.dust) {
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.y > 1.05) { p.y = -0.05; p.x = Math.random(); }
+      if (p.x < -0.05) p.x = 1.05; else if (p.x > 1.05) p.x = -0.05;
+    }
+
     const tx = this.cx + 0.5, ty = this.cy + 0.5;
     const ta = this.facing * (Math.PI / 2);
     const k = Math.min(1, dt * 9);
@@ -603,12 +631,13 @@ export class Game {
     for (let y = 0; y < rh; y++) {
       const top = y < rh / 2;
       const base = top ? COLORS.ceil : COLORS.floor;
-      // 거리감을 주는 세로 그라데이션
       const k = top ? y / (rh / 2) : 1 - (y - rh / 2) / (rh / 2);
-      const f = 0.35 + k * 0.65;
+      const f = (0.3 + k * 0.7) * this.flicker;
       for (let x = 0; x < rw; x++) {
+        // 4픽셀 덩어리 단위로 얼룩을 준다. 매끈한 면을 남기지 않는다.
+        const n = 0.86 + hash3(x >> 2, y >> 2, 5) * 0.3;
         const i = (y * rw + x) * 4;
-        data[i] = base[0] * f; data[i + 1] = base[1] * f; data[i + 2] = base[2] * f; data[i + 3] = 255;
+        data[i] = base[0] * f * n; data[i + 1] = base[1] * f * n; data[i + 2] = base[2] * f * n; data[i + 3] = 255;
       }
     }
 
@@ -645,18 +674,37 @@ export class Game {
       const y0 = Math.max(0, Math.floor(-lineH / 2 + rh / 2));
       const y1 = Math.min(rh - 1, Math.floor(lineH / 2 + rh / 2));
 
-      const base = side === 1 ? COLORS.wallDark : COLORS.wallLight;
-      const fog = Math.max(0.14, Math.min(1, 5.0 / d));
-      const r = base[0] * fog, g = base[1] * fog, b = base[2] * fog;
+      // 벽의 어느 지점을 맞췄는지. 얼룩을 벽에 붙여 두려면 이 값이 있어야 한다.
+      let wallX = side === 0 ? this.py + d * rdy : this.px + d * rdx;
+      wallX -= Math.floor(wallX);
 
+      const base = side === 1 ? COLORS.wallDark : COLORS.wallLight;
+      const fog = Math.max(0.14, Math.min(1, 5.0 / d)) * this.flicker;
+
+      // 세로 결. 같은 벽 같은 자리는 늘 같은 얼룩이다.
+      const stripe = hash3(mapX, mapY, Math.floor(wallX * 23)) * 0.55
+                   + hash3(mapX, mapY, Math.floor(wallX * 6) + 900) * 0.45;
+      const grime = 0.7 + stripe * 0.5;
+      // 녹은 드물게, 대신 번진 칸은 확실하게
+      const rust = hash3(mapX, mapY, 91) ** 5;
+
+      const r0 = (base[0] * (1 - rust) + COLORS.wallRust[0] * rust) * fog * grime;
+      const g0 = (base[1] * (1 - rust) + COLORS.wallRust[1] * rust) * fog * grime;
+      const b0 = (base[2] * (1 - rust) + COLORS.wallRust[2] * rust) * fog * grime;
+
+      const span = Math.max(1, y1 - y0);
       for (let y = y0; y <= y1; y++) {
+        // 위아래는 어둡고 가운데가 밝다. 평평해 보이지 않게.
+        const vt = (y - y0) / span;
+        const v = 0.58 + 0.52 * Math.sin(vt * Math.PI) + hash3(mapX, mapY, y) * 0.07;
         const i = (y * rw + x) * 4;
-        data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 255;
+        data[i] = r0 * v; data[i + 1] = g0 * v; data[i + 2] = b0 * v; data[i + 3] = 255;
       }
     }
 
     this.ctx.putImageData(img, 0, 0);
     this.drawSprites();
+    this.drawDust();
   }
 
   collectSprites() {
@@ -727,7 +775,8 @@ export class Game {
       if (runStart >= 0) runs.push([runStart, Math.min(rw - 1, x1)]);
       if (!runs.length) continue;
 
-      const fog = Math.max(0.16, Math.min(1, 5.2 / ty));
+      let fog = Math.max(0.16, Math.min(1, 5.2 / ty));
+      if (s.ground) fog *= 0.66;      // 바닥에 놓인 것은 빛이 잘 닿지 않는다
 
       c.save();
       c.beginPath();
@@ -735,6 +784,16 @@ export class Game {
       c.clip();
       this.paintSprite(s.kind, screenX, top, bottom, w, fog, ty);
       c.restore();
+    }
+  }
+
+  drawDust() {
+    const c = this.ctx;
+    for (const p of this.dust) {
+      c.fillStyle = `rgba(214, 198, 162, ${p.a * this.flicker})`;
+      c.beginPath();
+      c.arc(p.x * this.rw, p.y * this.rh, p.r, 0, TAU);
+      c.fill();
     }
   }
 
@@ -815,14 +874,14 @@ export class Game {
 
     if (kind === 'corpse') {
       // 웅크린 채 굳은 덩어리 + 뻗어 나온 팔
-      c.fillStyle = dim([74, 66, 56]);
+      c.fillStyle = dim([46, 42, 36]);
       c.beginPath();
       c.ellipse(cx, bottom - h * 0.35, w * 0.34, h * 0.5, 0, 0, TAU);
       c.fill();
       c.beginPath();
       c.ellipse(cx - w * 0.26, bottom - h * 0.2, w * 0.18, h * 0.34, 0.4, 0, TAU);
       c.fill();
-      c.strokeStyle = dim([88, 78, 66]);
+      c.strokeStyle = dim([58, 52, 44]);
       c.lineWidth = Math.max(1, w * 0.06);
       c.lineCap = 'round';
       c.beginPath();
