@@ -13,9 +13,17 @@
  */
 export const EFFECTS = {
   'maze.size': {
-    desc: '미로의 크기. 작을수록 쉽다. 5~41 사이의 홀수.',
+    desc: '공간의 크기. 넓게·좁게는 이것. 5~41 사이의 홀수. 모양(방인지 미로인지)은 maze.layout 이 정한다.',
     params: { value: 'number' },
     apply: (s, e) => { s.mazeSize = clampOdd(e.value, 5, 41); },
+  },
+  'maze.layout': {
+    desc: "공간의 모양. 'room' 은 내부 벽 없이 탁 트인 공간, 'maze' 는 미로. 넓히기만 바라면 room.",
+    params: { value: 'string' },
+    apply: (s, e) => {
+      const v = String(e.value ?? '').toLowerCase();
+      if (v === 'room' || v === 'maze') s.layout = v;
+    },
   },
   'maze.traps': {
     desc: '미로에 설치되는 함정의 개수. 밟으면 큰 피해를 입는다. 0~40.',
@@ -36,6 +44,14 @@ export const EFFECTS = {
     desc: '괴물의 이동 속도 배율. 0.3~3.0. 1.0 이 기본.',
     params: { value: 'number' },
     apply: (s, e) => { s.monsterSpeed = clampF(e.value, 0.3, 3); },
+  },
+  'entity.monster_look': {
+    desc: '괴물의 생김새. 적대적인 생물이 적히면 entity.monster 와 함께 낸다. 행동은 바뀌지 않고 모습만 바뀐다.',
+    params: { name: 'string', tags: 'string', emoji: 'string' },
+    apply: (s, e) => {
+      const o = normalizeObject(e);
+      if (o) s.monsterLook = { key: o.key, name: o.name, tags: o.tags, emoji: o.emoji };
+    },
   },
   'entity.corpses': {
     desc: '바닥에 널린 시체의 수. 미끼로 던져 괴물의 주의를 끌 수 있다. 0~60.',
@@ -101,11 +117,14 @@ export const EFFECTS = {
     apply: (s, e) => { s.noExit = !!e.value; },
   },
   'object.spawn': {
-    desc: '구체적인 물체·생물이 방 안에 놓이거나 나타나기를 바랄 때. 엔진 규칙에는 영향이 없고 눈에 보이기만 한다. '
+    desc: '물건·생물·현상이 방 안에 말 그대로 나타난다. 엔진 규칙이 모르는 것은 전부 이것으로 옮긴다. '
       + '위의 Effect 로 옮겨지는 것(권총·칼·지도·시체·괴물)은 여기 쓰지 않는다. '
-      + 'name 은 적힌 그대로의 짧은 한국어 이름, tags 는 생김새를 설명하는 영어 단어 3~6개를 쉼표로, '
-      + 'emoji 는 가장 가까운 이모지 1개, count 는 1~5.',
-    params: { name: 'string', tags: 'string', emoji: 'string', count: 'number' },
+      + "name: 적힌 그대로의 짧은 한국어 이름. tags: 생김새를 설명하는 영어 단어 3~6개(쉼표). emoji: 가장 가까운 이모지 1개. count: 1~5. "
+      + "where: 'anywhere' | 'entrance'(앞에·입구에) | 'exit'(출구에·문 앞에) | 'wall'(벽에·걸려·붙어). "
+      + "use: 'none' | 'ranged'(쏘거나 던지는 도구) | 'melee'(휘두르는 도구). "
+      + "moves: 'still' | 'wander'(돌아다닌다) | 'follow'(따라온다). "
+      + 'desc: 가까이 가면 보이는 한 문장. 현상·규칙은 여기에 말 그대로 쓴다.',
+    params: { name: 'string', tags: 'string', emoji: 'string', count: 'number', where: 'string', use: 'string', moves: 'string', desc: 'string' },
     apply: (s, e) => {
       const o = normalizeObject(e);
       if (!o) return;
@@ -144,7 +163,12 @@ export function normalizeTags(tags) {
 
 const segmenter = new Intl.Segmenter();
 
-/** LLM 이 낸 object.spawn 을 엔진이 믿을 수 있는 모양으로. 이름이 없으면 null. */
+const pick = (v, allowed) => {
+  const s = String(v ?? '').trim().toLowerCase();
+  return allowed.includes(s) ? s : allowed[0];
+};
+
+/** LLM 이 낸 object.spawn 을 엔진이 믿을 수 있는 모양으로. 이름이 없으면 null. 모르는 값은 기본값. */
 export function normalizeObject(e) {
   const name = String(e?.name ?? '').trim().slice(0, 40);
   if (!name) return null;
@@ -152,7 +176,15 @@ export function normalizeObject(e) {
   if (!tags.length) tags = normalizeTags(name);   // 이름이 영어면 그대로 태그가 된다
   const first = [...segmenter.segment(String(e.emoji ?? '').trim())][0]?.segment || '';
   const emoji = /\p{Extended_Pictographic}/u.test(first) ? first : '❔';
-  return { key: objectKey(name), name, tags, emoji, count: clamp(e.count ?? 1, 1, 5) };
+  const where = pick(e.where, ['anywhere', 'entrance', 'exit', 'wall']);
+  const wall = where === 'wall';
+  return {
+    key: objectKey(name), name, tags, emoji, count: clamp(e.count ?? 1, 1, 5),
+    where,
+    use: wall ? 'none' : pick(e.use, ['none', 'ranged', 'melee']),
+    moves: wall ? 'still' : pick(e.moves, ['still', 'wander', 'follow']),
+    desc: String(e.desc ?? '').trim().slice(0, 120),
+  };
 }
 
 /** 최초의 방. 아무것도 없는 빈 공간에 탈출구만 덩그러니. */
@@ -176,6 +208,8 @@ export function initialState() {
     healOnExit: false,
     hunger: 0,
     noExit: false,
+    layout: null,
+    monsterLook: null,
     objects: [],
     flavor: [],
   };

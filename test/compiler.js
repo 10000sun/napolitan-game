@@ -104,5 +104,26 @@ check(st.objects.length === 1 && st.objects[0].count === 3, '같은 key 는 덮�
 st = foldEffects(Array.from({ length: 40 }, (_, i) => [{ type: 'object.spawn', name: `o${i}`, tags: 'x' }]));
 check(st.objects.length === 30, '오브젝트는 30종까지');
 
+// ── 말 그대로: 새 필드 ──────────────────────────────────
+o = normalizeObject({ name: '활', where: 'ENTRANCE', use: 'Ranged', moves: 'follow', desc: '  시위가 떨린다.  ' });
+check(o.where === 'entrance' && o.use === 'ranged' && o.moves === 'follow', '대소문자 무시하고 받는다');
+check(o.desc === '시위가 떨린다.', 'desc 는 다듬는다');
+o = normalizeObject({ name: '활', where: 'ceiling', use: 'gun', moves: 'fly' });
+check(o.where === 'anywhere' && o.use === 'none' && o.moves === 'still', '모르는 값은 기본값');
+o = normalizeObject({ name: '가면', where: 'wall', use: 'melee', moves: 'wander' });
+check(o.use === 'none' && o.moves === 'still', '벽에 붙은 건 줍지도 움직이지도 않는다');
+check(normalizeObject({ name: 'x', desc: 'a'.repeat(300) }).desc.length === 120, 'desc 120자');
+check(normalizeObject({ name: 'x' }).desc === '' && normalizeObject({ name: 'x' }).where === 'anywhere', '옛 규칙은 기본값');
+
+st = foldEffects([[{ type: 'maze.layout', value: 'room' }]]);
+check(st.layout === 'room', 'maze.layout room');
+st = foldEffects([[{ type: 'maze.layout', value: 'cave' }]]);
+check(st.layout === null, '모르는 레이아웃은 무시');
+check(foldEffects([]).layout === null, '기본 레이아웃은 null (크기로 판단)');
+
+st = foldEffects([[{ type: 'entity.monster_look', name: '거대한 거미', tags: 'spider, giant', emoji: '🕷️' }]]);
+check(st.monsterLook?.key === '거대한 거미' && st.monsterLook.tags[0] === 'spider', '괴물 모습');
+check(foldEffects([]).monsterLook === null, '기본 괴물 모습은 없음');
+
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);
