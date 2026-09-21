@@ -150,6 +150,8 @@ export class Game {
     window.addEventListener('keydown', this._onKey);
 
     this._resize();
+    // 지도가 없으면 미니맵도 없다.
+    this.mm.style.display = this.s.map ? '' : 'none';
     this.reveal();
     this._intro();
   }
@@ -164,7 +166,7 @@ export class Game {
       this.lastT = t;
       this.stepCamera(dt);
       this.render();
-      this.drawMinimap();
+      if (this.s.map) this.drawMinimap();
     };
     this.raf = requestAnimationFrame(loop);
     this.pushState();

@@ -27,13 +27,17 @@ function toast(msg, ms = 2600) {
 
 /* ── 현관 ─────────────────────────────────────────── */
 async function loadLobby() {
-  const { user } = await api('/api/me');
+  const { user, canEnter, lostParts } = await api('/api/me');
   me = user;
 
   // 이 방은 자기에 대해 아무것도 알려주지 않는다.
   // 들어오지 못한 사람에게만 들어올 방법을 알려준다.
   $('auth-box').innerHTML = me ? '' : '<a href="/auth/login">디스코드로 로그인</a>';
-  $('btn-enter').disabled = !me;
+  $('btn-enter').disabled = !me || !canEnter;
+  const notes = [];
+  if (me && !canEnter) notes.push('문이 열리지 않는다. 다른 누군가가 먼저 들어가야 한다.');
+  if (me && lostParts?.length) notes.push(`당신은 ${lostParts.join(', ')} 없이 서 있다.`);
+  $('lobby-note').textContent = notes.join(' ');
 }
 
 /* ── 방명록 ───────────────────────────────────────── */
@@ -108,7 +112,7 @@ async function submitEntry() {
 /* ── 게임 ─────────────────────────────────────────── */
 async function enterRoom() {
   try {
-    const { runId: id, world } = await api('/api/run/start', { method: 'POST' });
+    const { runId: id, world, body } = await api('/api/run/start', { method: 'POST' });
     runId = id;
     show('game');
 
@@ -122,7 +126,7 @@ async function enterRoom() {
       onChoices: renderChoices,
       onHit: flashRed,
       onEnd: endRun,
-    });
+    }, body);
     game.start();
   } catch (e) {
     toast(e.message);
@@ -162,12 +166,12 @@ function renderHud(h) {
     : `몸 <b class="${h.hp <= 35 ? 'low' : ''}">${h.hp}</b>`;
 
   const gear = [];
-  if (h.hasPistol) gear.push(`권총 <b>${h.ammo}</b>발`);
+  if (h.hasPistol) gear.push(`${h.rangedName || '권총'} <b>${h.ammo}</b>`);
   if (h.hasKnife) gear.push('칼');
   if (h.corpse > 0) gear.push(`시체 <b>${h.corpse}</b>구`);
   $('hud-gear').innerHTML = gear.join(' · ');
 
-  $('hud-turns').innerHTML = h.turnsLeft > 0 ? `배고픔 <b class="low">${h.turnsLeft}</b>` : '';
+  $('hud-turns').innerHTML = h.lost?.length ? `없음 <b class="low">${h.lost.join(', ')}</b>` : '';
 }
 
 function flashRed() {
@@ -184,7 +188,7 @@ async function endRun(result) {
 
   if (result.won) {
     try {
-      await api(`/api/run/${runId}/clear`, { method: 'POST' });
+      await api(`/api/run/${runId}/clear`, { method: 'POST', body: JSON.stringify({ lostParts: result.lostParts }) });
     } catch (e) {
       // 여기서 조용히 넘어가면 기입 권한이 없는 이유를 아무도 알 수 없다.
       toast(e.message);
