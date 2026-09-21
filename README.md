@@ -83,11 +83,40 @@ npm start               # http://localhost:3000
 
 | 변수 | 설명 |
 |---|---|
-| `ANTHROPIC_API_KEY` | 없으면 방명록이 세계를 바꾸지 않는다 (글은 적히지만 전부 `flavor_only`) |
+| `LLM_PROVIDER` | `gemini` / `openai` / `anthropic`. 비워 두면 채워진 키를 보고 고른다 |
+| (제공자별 키) | 아래 표 참고. 없으면 글은 적히지만 세계가 바뀌지 않는다 |
 | `DISCORD_CLIENT_ID` / `_SECRET` | [디스코드 개발자 포털](https://discord.com/developers/applications) > OAuth2 |
 | `DISCORD_GUILD_ID` | 이 서버의 멤버만 입장시킨다. 비우면 로그인한 아무나 들어온다 |
 | `BASE_URL` | 배포 주소. OAuth2 Redirect 에 `{BASE_URL}/auth/callback` 을 등록할 것 |
 | `SESSION_SECRET` | 세션 쿠키 서명용 랜덤 문자열 |
+
+### 판정을 어디에 맡길지
+
+호출은 **방명록에 글이 적힐 때 한 번**뿐이다. 하루 수십 줄이 적혀도 어지간한
+무료 한도 안에 들어간다. `src/llm.js` 의 어댑터를 갈아끼우는 것으로 제공자를
+바꾼다.
+
+| `LLM_PROVIDER` | 키 | 어디서 | 비고 |
+|---|---|---|---|
+| `gemini` | `GEMINI_API_KEY` | [AI Studio](https://aistudio.google.com/apikey) | 무료 한도가 넉넉하다. 기본값 |
+| `openai` | `OPENAI_API_KEY` + `OPENAI_BASE_URL` | Groq / OpenRouter / Ollama … | OpenAI 호환이면 전부 붙는다 |
+| `anthropic` | `ANTHROPIC_API_KEY` | [console](https://console.anthropic.com) | 유료 |
+
+`openai` 로 붙일 만한 곳:
+
+```
+Groq        OPENAI_BASE_URL=https://api.groq.com/openai/v1   OPENAI_MODEL=llama-3.3-70b-versatile
+OpenRouter  OPENAI_BASE_URL=https://openrouter.ai/api/v1     OPENAI_MODEL=<...:free>
+Ollama      OPENAI_BASE_URL=http://localhost:11434/v1        OPENAI_MODEL=llama3.1   (키 불필요)
+```
+
+모델이 작을수록 판정이 헐거워진다. 특히 **겹침·밀려남 판정과 저격·신상
+차단은 모델 성능에 직접 걸린다.** 무료 모델로 바꿨다면 서버에 올리기 전에
+`test/` 대신 실제로 몇 줄 적어 보고 판정을 눈으로 확인할 것.
+
+어느 제공자를 쓰든 모델이 뱉은 JSON 은 `effects.js` 의 `sanitize()` 를 반드시
+통과한다. 모르는 타입은 사라지고 범위를 벗어난 값은 잘리므로, 모델이 헛소리를
+해도 엔진이 받는 것은 항상 정해진 Effect 뿐이다.
 
 ### 로그인 없이 돌려보기
 

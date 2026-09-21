@@ -7,22 +7,11 @@
 //
 // 원작이 이미 판정 규칙을 정해놨다:
 //   "앞에 있는 내용과 겹치거나 반대되는 내용도 반영이 안 되는 거 같구요."
-// 이 판정을 LLM 이 맡는다.
+// 이 판정을 LLM 이 맡는다. 어느 회사 모델을 쓸지는 src/llm.js 가 정한다.
 // ─────────────────────────────────────────────────────────────
 
-import Anthropic from '@anthropic-ai/sdk';
+import { judge } from './llm.js';
 import { catalogForPrompt, sanitize } from './effects.js';
-
-const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
-
-let client = null;
-function getClient() {
-  if (!client) {
-    if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY 가 설정되지 않았습니다.');
-    client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  }
-  return client;
-}
 
 const VERDICTS = ['applied', 'duplicate', 'contradiction', 'swallowed', 'flavor_only'];
 
@@ -87,37 +76,26 @@ ${catalogForPrompt()}
   duplicate     → "이미 같은 말이 적혀 있다. 잉크가 겹쳐 번질 뿐이다."
   contradiction → "앞장의 문장이 이 글을 밀어낸다. 공책은 두 말을 동시에 듣지 않는다."
   flavor_only   → "공책은 이 글을 그저 받아 적기만 했다."
-  swallowed     → "쓰자마자 글자가 종이 속으로 가라앉아 사라졌다."`;
+  swallowed     → "쓰자마자 글자가 종이 속으로 가라앉아 사라졌다."
 
-const TOOL = {
-  name: 'record_verdict',
-  description: '공책에 새로 적힌 글에 대한 판정을 기록한다.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      verdict: { type: 'string', enum: VERDICTS, description: '판정 결과' },
-      effects: {
-        type: 'array',
-        description: 'verdict 가 applied 일 때만 채운다. 그 외에는 빈 배열.',
-        items: {
-          type: 'object',
-          properties: {
-            type: { type: 'string', description: 'Effect 타입' },
-            value: { description: 'value 파라미터를 받는 Effect 용' },
-            count: { type: 'number', description: 'count 파라미터를 받는 Effect 용' },
-            seconds: { type: 'number' },
-            cost: { type: 'string' },
-            what: { type: 'string' },
-            text: { type: 'string' },
-          },
-          required: ['type'],
-        },
-      },
-      reason: { type: 'string', description: '게임 안의 목소리로 쓴 판정 이유 한 문장' },
-    },
-    required: ['verdict', 'effects', 'reason'],
-  },
-};
+# 출력 형식
+설명이나 인사 없이 **JSON 객체 하나만** 출력한다. 코드블록으로 감싸지 않는다.
+
+{
+  "verdict": "applied | duplicate | contradiction | swallowed | flavor_only",
+  "effects": [],
+  "reason": "게임 안의 목소리로 쓴 한 문장"
+}
+
+effects 는 verdict 가 applied 일 때만 채운다. 그 외에는 반드시 빈 배열이다.
+각 Effect 는 { "type": "<타입>", ...파라미터 } 형태다. 예:
+
+  { "type": "maze.size", "value": 21 }
+  { "type": "entity.monster", "count": 8 }
+  { "type": "item.pistol", "value": true }
+  { "type": "item.map_shows", "what": "traps" }
+  { "type": "rule.exit_cost", "cost": "random_body_part" }
+  { "type": "flavor.text", "text": "벽 어딘가에 눈금이 새겨져 있다." }`;
 
 /** 앞사람들이 적은 글을 프롬프트용으로 압축한다. */
 function historyBlock(appliedRules) {
@@ -145,29 +123,19 @@ ${JSON.stringify({ ...worldState, flavor: worldState.flavor.slice(-5) }, null, 1
 ${text}
 """
 
-이 글을 판정하고 record_verdict 로 기록하라.`;
+이 글을 판정하라.`;
 
-  const res = await getClient().messages.create({
-    model: MODEL,
-    max_tokens: 1500,
-    system: SYSTEM,
-    tools: [TOOL],
-    tool_choice: { type: 'tool', name: 'record_verdict' },
-    messages: [{ role: 'user', content: user }],
-  });
+  const out = await judge({ system: SYSTEM, user });
 
-  const block = res.content.find((c) => c.type === 'tool_use');
-  if (!block) throw new Error('판정을 받지 못했습니다.');
-
-  const out = block.input || {};
-  const verdict = VERDICTS.includes(out.verdict) ? out.verdict : 'flavor_only';
-  // LLM 출력은 무조건 DSL 검증을 통과해야 한다. 모르는 타입은 여기서 사라진다.
+  const verdict = VERDICTS.includes(out?.verdict) ? out.verdict : 'flavor_only';
+  // 모델이 무엇을 뱉든 DSL 검증을 통과해야 한다. 모르는 타입은 여기서 사라진다.
   const effects = verdict === 'applied' ? sanitize(out.effects) : [];
+  const reason = String(out?.reason || '공책이 조용하다.').slice(0, 400);
 
   return {
     verdict: effects.length === 0 && verdict === 'applied' ? 'flavor_only' : verdict,
     effects,
-    reason: String(out.reason || '공책이 조용하다.').slice(0, 400),
+    reason,
   };
 }
 

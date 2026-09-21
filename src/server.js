@@ -8,6 +8,7 @@ import { q, loadAppliedRules } from './db.js';
 import { currentUser, requireUser, setSession, authUrl, exchangeCode } from './auth.js';
 import { buildWorld } from './world.js';
 import { compileEntry, offlineFallback } from './compiler.js';
+import { isConfigured, describeProvider } from './llm.js';
 import { foldEffects } from './effects.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -68,7 +69,7 @@ app.post('/api/guestbook', requireUser, async (req, res) => {
 
   let verdict;
   try {
-    verdict = process.env.ANTHROPIC_API_KEY
+    verdict = isConfigured()
       ? await compileEntry(text, rules, state)
       : offlineFallback();
   } catch (e) {
@@ -129,6 +130,7 @@ const port = Number(process.env.PORT) || 3000;
 app.listen(port, () => {
   console.log(`\n  나폴리탄  →  http://localhost:${port}`);
   if (process.env.DEV_NO_AUTH === '1') console.log('  ⚠ DEV_NO_AUTH=1 — 디스코드 로그인 없이 누구나 입장합니다.');
-  if (!process.env.ANTHROPIC_API_KEY) console.log('  ⚠ ANTHROPIC_API_KEY 없음 — 방명록이 세계를 바꾸지 않습니다.');
+  if (isConfigured()) console.log(`  판정: ${describeProvider()}`);
+  else console.log('  ⚠ LLM 키 없음 — 방명록이 세계를 바꾸지 않습니다. (.env 를 보세요)');
   console.log('');
 });
