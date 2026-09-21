@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import { sprite, drawUncanny, stretchFor } from '/uncanny.js';
+import { nextStep, wanderStep } from '/paths.js';
 
 const TAU = Math.PI * 2;
 
@@ -107,6 +108,8 @@ export class Game {
 
     this.hasPistol = false;
     this.hasKnife = false;
+    this.rangedName = null;       // 원거리 무기 이름 (권총, 활 ...)
+    this.meleeName = null;        // 근접 무기 이름 (칼, 쇠파이프 ...)
     this.ammo = 0;
     this.carriedCorpse = 0;
 
@@ -125,10 +128,11 @@ export class Game {
 
     // 방명록 물체. 규칙에는 영향 없이 서 있기만 한다.
     this.objects = (world.objects || []).map((o) => ({
-      ...o, dx: 0, dy: 0, stretch: stretchFor(o.id), wasVisible: false, visible: false,
+      ...o, dx: 0, dy: 0, stretch: stretchFor(o.id), wasVisible: false, visible: false, taken: false,
     }));
     for (const o of this.objects) sprite(o.img);
     for (const it of this.items) sprite(it.img);
+    if (this.w.monsterLook) sprite(this.w.monsterLook.img);
 
     this.seen = Array.from({ length: this.size }, () => Array(this.size).fill(this.mapKnown));
 
@@ -270,6 +274,9 @@ export class Game {
 
   itemHere() { return this.items.find((it) => !it.taken && it.x === this.cx && it.y === this.cy); }
   corpseHere() { return this.corpses.find((c) => !c.taken && c.x === this.cx && c.y === this.cy); }
+  toolHere() {
+    return this.objects.find((o) => !o.taken && o.use !== 'none' && o.x === this.cx && o.y === this.cy);
+  }
 
   /* ── 선택지 ───────────────────────────────────── */
   buildChoices() {
@@ -287,15 +294,19 @@ export class Game {
 
     const it = this.itemHere();
     if (it) out.push({ id: 'take', label: `${ITEM_NAME[it.kind] || '무언가'}을(를) 줍는다`, kind: 'act' });
+    const tool = this.toolHere();
+    if (tool) out.push({ id: 'tool', label: `${tool.name}을(를) 줍는다`, kind: 'act' });
     const co = this.corpseHere();
     if (co) out.push({ id: 'corpse', label: '시체를 챙긴다', kind: 'act' });
 
     if (sight) {
       if (this.hasPistol && this.ammo > 0) {
-        out.push({ id: 'shoot', label: `총을 쏜다`, hint: `${this.ammo}발 남음`, kind: 'fight' });
+        out.push({ id: 'shoot', label: `${this.rangedName || '총'}을(를) 쏜다`, hint: `${this.ammo}발 남음`, kind: 'fight' });
       }
       if (sight.dist === 1) {
-        out.push({ id: 'melee', label: this.hasKnife ? '칼로 벤다' : '맨손으로 친다', kind: 'fight' });
+        const label = this.meleeName && this.meleeName !== '칼' ? `${this.meleeName}(으)로 내려친다`
+          : this.hasKnife ? '칼로 벤다' : '맨손으로 친다';
+        out.push({ id: 'melee', label, kind: 'fight' });
       }
     }
     if (this.carriedCorpse > 0) {
@@ -325,6 +336,7 @@ export class Game {
       case 'back': this.facing = (this.facing + 2) % 4; spendsTurn = false; this.describe(); break;
       case 'forward': this.moveForward(); break;
       case 'take': this.takeItem(); break;
+      case 'tool': this.takeTool(); break;
       case 'corpse': this.takeCorpse(); break;
       case 'shoot': this.shoot(); break;
       case 'melee': this.melee(); break;
@@ -357,14 +369,33 @@ export class Game {
     this.audio.pickup();
     if (it.kind === 'pistol') {
       this.hasPistol = true;
+      this.rangedName = '권총';
       this.ammo += this.s.ammo || 12;
       this.log(`권총을 주웠다. 탄약 ${this.ammo}발.`);
     } else if (it.kind === 'knife') {
       this.hasKnife = true;
+      this.meleeName = '칼';
       this.log('칼을 주웠다. 손에 익는다.');
     } else if (it.kind === 'map') {
       this.mapKnown = true;
       this.log('지도를 펼쳤다. 미로가 전부 드러났다.');
+    }
+  }
+
+  takeTool() {
+    const o = this.toolHere();
+    if (!o) return;
+    o.taken = true;
+    this.audio.pickup();
+    if (o.use === 'ranged') {
+      this.hasPistol = true;
+      this.rangedName = o.name;
+      this.ammo += 12;
+      this.log(`${o.name}을(를) 주웠다. 쏠 것이 ${this.ammo}번 남았다.`);
+    } else {
+      this.hasKnife = true;
+      this.meleeName = o.name;
+      this.log(`${o.name}을(를) 주웠다. 손에 쥐어 본다.`);
     }
   }
 
@@ -471,6 +502,7 @@ export class Game {
     this.turn++;
     this.moveMonsters();
     if (this.dead) return;
+    this.moveObjects();
 
     for (const b of this.baits) b.life--;
     this.baits = this.baits.filter((b) => b.life > 0);
@@ -482,6 +514,18 @@ export class Game {
     }
 
     if (this.s.shifting && this.turn % 8 === 0) this.shiftMaze();
+  }
+
+  /** 따라오거나 돌아다니는 물체. 해가 없고 길을 막지 않는다. */
+  moveObjects() {
+    const isFloor = (x, y) => !this.wall(x, y);
+    for (const o of this.objects) {
+      if (o.taken || o.where === 'wall' || o.moves === 'still') continue;
+      const n = o.moves === 'follow'
+        ? nextStep(isFloor, o, { x: this.cx, y: this.cy })
+        : wanderStep(isFloor, o);
+      if (n) { o.x = n.x; o.y = n.y; }
+    }
   }
 
   moveMonsters() {
@@ -562,10 +606,18 @@ export class Game {
     if (this.traps.some((t) => !t.sprung && this.s.mapTraps && t.x === a.x && t.y === a.y)) {
       bits.push('지도에 따르면 앞 칸에 함정이 있다.');
     }
-    const obj = this.objects.find((o) => o.x === this.cx && o.y === this.cy);
-    if (obj) bits.push(`${obj.name}이(가) 있다.`);
-    const front = !this.wall(a.x, a.y) && this.objects.find((o) => o.x === a.x && o.y === a.y);
-    if (front) bits.push(`앞에 ${front.name} 같은 것이 서 있다.`);
+    const withDesc = (line, o) => (o.desc ? `${line} ${o.desc}` : line);
+    const floorObj = (x, y) => this.objects.find((o) => !o.taken && o.where !== 'wall' && o.x === x && o.y === y);
+    const here = floorObj(this.cx, this.cy);
+    if (here) bits.push(withDesc(`${here.name}이(가) 있다.`, here));
+    if (this.wall(a.x, a.y)) {
+      const face = (this.facing + 2) % 4;
+      const onWall = this.objects.filter((o) => o.where === 'wall' && o.x === a.x && o.y === a.y && o.face === face);
+      if (onWall.length) bits.push(withDesc(`벽에 ${onWall[0].name}이(가) 걸려 있다.`, onWall[0]));
+    } else {
+      const front = floorObj(a.x, a.y);
+      if (front) bits.push(withDesc(`앞에 ${front.name} 같은 것이 있다.`, front));
+    }
 
     this.log(bits.join(' '));
   }
@@ -679,7 +731,7 @@ export class Game {
   collectSprites() {
     const out = [];
     for (const m of this.monsters) {
-      if (m.alive) out.push({ kind: 'monster', x: m.x + 0.5, y: m.y + 0.5, h: 1.05, w: 0.75 });
+      if (m.alive) out.push({ kind: 'monster', ref: this.w.monsterLook ? { ...this.w.monsterLook, id: 'monster' } : null, x: m.x + 0.5, y: m.y + 0.5, h: 1.05, w: 0.75 });
     }
     for (const c of this.corpses) {
       if (!c.taken) out.push({ kind: 'corpse', x: c.x + 0.5, y: c.y + 0.5, h: 0.3, w: 0.85, ground: true });
@@ -692,7 +744,14 @@ export class Game {
       out.push({ kind: it.kind, ref: it, x: it.x + 0.5, y: it.y + 0.5, h: 0.22, w: 0.4, ground: true });
     }
     for (const o of this.objects) {
-      out.push({ kind: 'object', ref: o, x: o.x + 0.5 + o.dx, y: o.y + 0.5 + o.dy, h: 0.7, w: 0.6, ground: true });
+      if (o.taken) continue;
+      if (o.where === 'wall') {
+        // 벽면 바로 앞, 눈높이보다 조금 아래에 붙여 세운다.
+        const [dx, dy] = DIRS[o.face];
+        out.push({ kind: 'object', ref: o, x: o.x + 0.5 + dx * 0.55, y: o.y + 0.5 + dy * 0.55, h: 0.4, w: 0.45, lift: 0.28 });
+      } else {
+        out.push({ kind: 'object', ref: o, x: o.x + 0.5 + o.dx, y: o.y + 0.5 + o.dy, h: 0.7, w: 0.6, ground: true });
+      }
     }
     for (const t of this.traps) {
       if (this.s.mapTraps && !t.sprung) {
@@ -731,7 +790,7 @@ export class Game {
       const w = unit * s.w;
       const h = unit * s.h;
       const floorY = rh / 2 + unit / 2;             // 이 거리에서 바닥이 닿는 높이
-      const bottom = s.ground ? floorY : floorY;
+      const bottom = floorY - unit * (s.lift || 0);
       const top = bottom - h;
 
       const x0 = Math.floor(screenX - w / 2), x1 = Math.ceil(screenX + w / 2);
@@ -761,7 +820,7 @@ export class Game {
 
     // 눈을 뗀 사이에 조금 옮겨 가 있다.
     for (const o of this.objects) {
-      if (o.wasVisible && !o.visible) {
+      if (o.where !== 'wall' && o.wasVisible && !o.visible) {
         o.dx = (Math.random() - 0.5) * 0.3;
         o.dy = (Math.random() - 0.5) * 0.3;
       }
@@ -776,7 +835,7 @@ export class Game {
 
     // 방명록 물체, 또는 모습이 준비된 아이템. 아이템은 모습이 없으면 아래의 도형으로 떨어진다.
     const canvas = sprite(ref?.img);
-    if (kind === 'object' || canvas) {
+    if (kind === 'object' || canvas || (kind === 'monster' && ref)) {
       drawUncanny(c, { canvas, emoji: ref.emoji }, cx, bottom, w, h, fog, ref.stretch ?? stretchFor(ref.id));
       return;
     }
