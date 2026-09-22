@@ -397,16 +397,21 @@ export class Game {
       out.push({ id: 'bait', label: '시체를 던진다', hint: `${this.carriedCorpse}구`, kind: 'act' });
     }
 
-    out.push(blocked
-      ? { id: 'forward', label: '앞은 벽이다', kind: 'move', disabled: true }
-      : { id: 'forward', label: '앞으로 나아간다', kind: 'move' });
-    out.push({ id: 'left', label: '왼쪽으로 돈다', kind: 'turn' });
-    out.push({ id: 'right', label: '오른쪽으로 돈다', kind: 'turn' });
-    out.push({ id: 'back', label: '뒤돌아선다', kind: 'turn' });
     for (const { rule, i } of this.rules.buttons(this.reachKeys())) {
       const o = this.objects.find((x) => !x.taken && x.key === rule.target);
       out.push({ id: `rule:${i}`, label: `${o ? o.name : rule.target}을(를) ${rule.verb}`, kind: 'act' });
     }
+
+    // 이동은 방향대로 놓는다. 화면 왼쪽 버튼이 왼쪽으로 도는 버튼이어야
+    // 손이 헷갈리지 않는다. group: 'nav' 가 붙은 것은 따로 모아 판으로 깐다.
+    //   앞으로 나아간다 | 뒤돌아선다
+    //   왼쪽으로 돈다   | 오른쪽으로 돈다
+    out.push(blocked
+      ? { id: 'forward', label: '앞은 벽이다', kind: 'move', group: 'nav', disabled: true }
+      : { id: 'forward', label: '앞으로 나아간다', kind: 'move', group: 'nav' });
+    out.push({ id: 'back', label: '뒤돌아선다', kind: 'turn', group: 'nav' });
+    out.push({ id: 'left', label: '왼쪽으로 돈다', kind: 'turn', group: 'nav' });
+    out.push({ id: 'right', label: '오른쪽으로 돈다', kind: 'turn', group: 'nav' });
     return out;
   }
 

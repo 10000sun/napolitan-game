@@ -303,6 +303,15 @@ code, .mono { font-family: 'Nanum Gothic Coding', monospace; }
   display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 9px;
   max-width: 60ch; margin: 0 auto; width: 100%;
 }
+.choices:empty { display: none; }
+
+/* 이동 판. 어느 폭에서도 두 열을 지킨다 — 한 열로 접히면 방향이 뒤섞인다.
+     앞으로 나아간다 | 뒤돌아선다
+     왼쪽으로 돈다   | 오른쪽으로 돈다 */
+.moves { grid-template-columns: 1fr 1fr; }
+.moves .choice { justify-content: center; text-align: center; }
+.moves .choice .key { position: absolute; left: 9px; top: 8px; }
+.moves .choice .label { padding-inline: 10px; }
 
 .choice {
   position: relative; isolation: isolate;
@@ -378,6 +387,8 @@ code, .mono { font-family: 'Nanum Gothic Coding', monospace; }
   /* 폰 세로: 화면 위쪽은 보는 자리로 남기고, 아래는 읽고 고르는 자리. 넘치면 패널 안에서 스크롤. */
   .panel { max-height: 62%; padding: 40px 12px calc(12px + env(safe-area-inset-bottom, 0px)); gap: 10px; overflow-y: auto; }
   .choices { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .moves { grid-template-columns: 1fr 1fr; }
+  .moves .choice { padding: 13px 8px; }
   .choice { font-size: 13.5px; line-height: 1.4; padding: 10px 10px; gap: 6px; }
   .choice .key { display: none; }
   .choice .hint { font-size: 10px; }
@@ -394,6 +405,7 @@ code, .mono { font-family: 'Nanum Gothic Coding', monospace; }
 @media (max-height: 500px) and (orientation: landscape) {
   .panel { max-height: 58%; padding: 28px 16px 10px; gap: 8px; overflow-y: auto; }
   .choices { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; }
+  .moves { grid-template-columns: 1fr 1fr; }
   .choice { font-size: 13px; padding: 8px 10px; }
   .log { max-height: 22vh; }
   .log-line { font-size: 13.5px; line-height: 1.6; }

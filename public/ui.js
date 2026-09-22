@@ -148,16 +148,19 @@ function pushLog(text, cls = '') {
 }
 
 function renderChoices(list) {
-  const box = $('choices');
-  box.innerHTML = '';
+  const acts = $('choices');
+  const moves = $('moves');
+  acts.innerHTML = '';
+  moves.innerHTML = '';
   list.forEach((c, i) => {
     const b = document.createElement('button');
     b.className = `choice ${c.kind || ''}`;
     b.disabled = !!c.disabled;
-    b.innerHTML = `<span class="key">${i + 1}</span><span>${escapeHtml(c.label)}</span>` +
+    b.innerHTML = `<span class="key">${i + 1}</span><span class="label">${escapeHtml(c.label)}</span>` +
                   (c.hint ? `<span class="hint">${escapeHtml(c.hint)}</span>` : '');
     b.onclick = () => game?.choose(c.id);
-    box.appendChild(b);
+    // 이동은 방향대로 놓인 판에, 나머지는 그 위에.
+    (c.group === 'nav' ? moves : acts).appendChild(b);
   });
 }
 
