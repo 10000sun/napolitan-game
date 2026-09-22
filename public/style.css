@@ -375,11 +375,27 @@ code, .mono { font-family: 'Nanum Gothic Coding', monospace; }
 }
 
 @media (max-width: 640px) {
-  .panel { max-height: 72%; padding-top: 48px; gap: 14px; }
-  .choices { grid-template-columns: 1fr; }
-  .log-line { font-size: 15px; }
+  /* 폰 세로: 화면 위쪽은 보는 자리로 남기고, 아래는 읽고 고르는 자리. 넘치면 패널 안에서 스크롤. */
+  .panel { max-height: 62%; padding: 40px 12px calc(12px + env(safe-area-inset-bottom, 0px)); gap: 10px; overflow-y: auto; }
+  .choices { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .choice { font-size: 13.5px; line-height: 1.4; padding: 10px 10px; gap: 6px; }
+  .choice .key { display: none; }
+  .choice .hint { font-size: 10px; }
+  .log { max-height: 26vh; gap: 5px; }
+  .log-line { font-size: 14px; line-height: 1.7; }
+  .hud { top: 12px; left: 12px; font-size: 11px; }
   #minimap { width: 100px; height: 100px; top: 12px; right: 12px; }
   .book-head { padding: 18px 20px 14px; }
   .entry { padding: 14px 20px; }
   .write-box { padding: 18px 20px 22px; }
+}
+
+/* 폰 가로 (높이가 낮은 화면): 패널을 낮게, 선택지는 여러 열로 */
+@media (max-height: 500px) and (orientation: landscape) {
+  .panel { max-height: 58%; padding: 28px 16px 10px; gap: 8px; overflow-y: auto; }
+  .choices { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; }
+  .choice { font-size: 13px; padding: 8px 10px; }
+  .log { max-height: 22vh; }
+  .log-line { font-size: 13.5px; line-height: 1.6; }
+  #minimap { width: 84px; height: 84px; top: 8px; right: 8px; }
 }

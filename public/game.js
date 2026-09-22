@@ -227,9 +227,15 @@ export class Game {
   }
 
   _resize() {
-    const scale = SCALES[this.scaleIdx || 0];
-    this.rw = Math.max(200, Math.floor(this.canvas.clientWidth * scale) || 400);
-    this.rh = Math.max(120, Math.floor(this.canvas.clientHeight * scale) || 260);
+    const cw = this.canvas.clientWidth || 400, ch = this.canvas.clientHeight || 260;
+    // 고해상도 화면은 선명하게, 단 픽셀 수는 약 110만 개로 묶는다 (폰이 버티게). 느리면 SCALES 로 더 내린다.
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const budget = Math.sqrt(1.1e6 / (cw * ch));
+    const scale = Math.min(dpr, budget) * SCALES[this.scaleIdx || 0];
+    this.rw = Math.max(200, Math.floor(cw * scale));
+    this.rh = Math.max(120, Math.floor(ch * scale));
+    // 세로로 좁은 화면에서는 시야를 좁혀 벽과 물체가 가늘게 늘어나지 않게 한다. 가로 화면은 그대로.
+    this.fov = Math.max(0.55, Math.min(1, (cw / ch) / 1.6));
     this.canvas.width = this.rw;
     this.canvas.height = this.rh;
     this.img = this.ctx.createImageData(this.rw, this.rh);
