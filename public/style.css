@@ -30,6 +30,11 @@
 
 html, body { height: 100%; overflow: hidden; }
 
+/* 두 번 탭해서 확대되는 것을 막는다. 손가락 두 개로 벌리는 확대는 남겨 둔다 —
+   글씨가 작아 못 읽는 사람에게서 그것까지 뺏을 이유는 없다. */
+body { touch-action: manipulation; }
+.btn, .choice, .quit, .key-btn { touch-action: manipulation; -webkit-tap-highlight-color: transparent; user-select: none; }
+
 body {
   background: var(--void);
   color: var(--bone);
@@ -444,3 +449,47 @@ code, .mono { font-family: 'Nanum Gothic Coding', monospace; }
 @media (prefers-reduced-motion: reduce) {
   .scare.on { animation: none; }
 }
+
+
+/* ── 번호판 ────────────────────────────────────────*/
+.keypad {
+  position: absolute; inset: 0; z-index: 40; display: grid; place-items: center;
+  background: radial-gradient(ellipse at 50% 45%, rgba(10,8,7,.86), rgba(4,3,3,.96));
+  padding: 20px;
+}
+.keypad.hidden { display: none !important; }
+
+.keypad-box { position: relative; padding: 26px 28px 22px; text-align: center; max-width: 340px; width: 100%; }
+.keypad-box::before {
+  content: ''; position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(170deg, var(--concrete), var(--void));
+  box-shadow: inset 0 0 0 1px rgba(154,84,35,.35), 0 20px 70px rgba(0,0,0,.8);
+  filter: url(#rough);
+}
+.keypad-title { font-family: 'Nanum Myeongjo', serif; font-size: 15px; color: var(--bone-dim); margin-bottom: 14px; }
+
+.keypad-out {
+  font-family: 'Nanum Gothic Coding', monospace; font-size: 30px; letter-spacing: .28em;
+  color: var(--amber); text-shadow: 0 0 22px rgba(209,160,73,.45);
+  padding: 10px 0 16px; font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.keypad-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-bottom: 16px; }
+.key-btn {
+  position: relative; isolation: isolate; border: 0; background: none; cursor: pointer;
+  font-family: 'Nanum Gothic Coding', monospace; font-size: 19px; color: var(--bone);
+  padding: 14px 0;
+}
+.key-btn.wide { font-size: 13px; }
+.key-btn.ok { grid-column: span 2; }
+.key-btn::before {
+  content: ''; position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(168deg, rgba(44,38,29,.95), rgba(20,17,13,.95));
+  box-shadow: inset 0 0 0 1px rgba(216,207,184,.14);
+  filter: url(#rough);
+  transition: background .12s, box-shadow .12s;
+}
+.key-btn:hover::before { background: linear-gradient(168deg, rgba(60,50,37,.96), rgba(30,25,19,.96)); box-shadow: inset 0 0 0 1px rgba(209,160,73,.4); }
+.key-btn:active { transform: translateY(1px); }
+.key-btn:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }

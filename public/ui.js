@@ -127,6 +127,7 @@ async function enterRoom() {
       onChoices: renderChoices,
       onHit: flashRed,
       onScare: showScare,
+      onKeypad: showKeypad,
       onEnd: endRun,
     }, body);
     game.start();
@@ -178,6 +179,49 @@ function renderHud(h) {
 
   $('hud-turns').innerHTML = h.lost?.length ? `없음 <b class="low">${escapeHtml(h.lost.join(', '))}</b>` : '';
 }
+
+/* ── 번호판 ───────────────────────────────────────── */
+let padCode = '';
+let padLen = 3;
+
+function padRender() {
+  $('keypad-out').textContent =
+    Array.from({ length: padLen }, (_, i) => padCode[i] || '·').join(' ');
+}
+
+function showKeypad({ digits }) {
+  padLen = digits;
+  padCode = '';
+  padRender();
+  $('keypad').classList.remove('hidden');
+}
+
+function hideKeypad() { $('keypad').classList.add('hidden'); }
+
+async function padSubmit() {
+  if (padCode.length !== padLen) return;
+  const code = padCode;
+  padCode = '';
+  padRender();
+  hideKeypad();
+  try {
+    const r = await api(`/api/run/${runId}/unlock`, { method: 'POST', body: JSON.stringify({ code }) });
+    game?.unlockResult(!!r.ok);
+  } catch (e) {
+    toast(e.message);
+    game?.unlockResult(false);
+  }
+}
+
+$('keypad').addEventListener('click', (e) => {
+  const k = e.target.closest('.key-btn')?.dataset.k;
+  if (!k) return;
+  if (k === 'del') padCode = padCode.slice(0, -1);
+  else if (k === 'ok') { padSubmit(); return; }
+  else if (padCode.length < padLen) padCode += k;
+  padRender();
+});
+$('keypad-close').onclick = hideKeypad;
 
 /** 깜놀. 번쩍임은 한 번뿐이고, 줄여 달라고 한 사람에게는 아예 보이지 않는다. */
 function showScare({ kind, img, emoji, calm }) {

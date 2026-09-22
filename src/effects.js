@@ -143,18 +143,35 @@ export const EFFECTS = {
   'rule.when': {
     desc: '"~하면 ~된다" 형태의 소원. 조건(on)과 행동(do)의 조합. '
       + "on: 'act'(대상에 새 버튼, verb 는 버튼 동사) | 'enter'(대상 칸에 들어감) | 'near'(대상 1칸 안) | 'every'(n턴마다) "
-      + "| 'see_monster' | 'pickup'(대상을 주움) | 'hurt'(체력 n 이하) | 'start'(들어오자마자) | 'door'(출구 앞). "
+      + "| 'see_monster' | 'pickup'(대상을 주움) | 'hurt'(체력 n 이하) | 'start'(들어오자마자) | 'door'(출구 앞) "
+      + "| 'flicker'(형광등이 깜빡일 때. 주기를 '가끔·때때로'처럼 뭉뚱그린 소원은 전부 이것). "
       + 'target: 대상 물체 이름(act·enter·near·pickup 에 필수, 권총·칼·지도도 된다). chance: 0.05~1. once: 한 판에 한 번. '
       + "do: 최대 4개 — { act:'say', text } | { act:'hp', amount:-50~50 } | { act:'lose_part', effect } "
       + "| { act:'teleport', to:'random'|'start'|'exit' } | { act:'monster', do:'flee'|'stun'|'enrage'|'spawn', count:1~3 } "
       + "| { act:'dark', turns:1~5 } | { act:'give', item:'ammo'|'pistol'|'knife'|'map', count } "
       + "| { act:'object', do:'vanish'|'follow'|'wander'|'come' } | { act:'sound', kind:'scream'|'whisper'|'knock' } "
-      + "| { act:'reveal', turns:1~10 } | { act:'scare' }. 방 전체에 규칙은 20개까지.",
+      + "| { act:'reveal', turns:1~10 } | { act:'scare' } | { act:'random' }(무엇이 일어날지 모름). "
+      + '방 전체에 규칙은 20개까지.',
     params: { on: 'string', target: 'string', verb: 'string', n: 'number', chance: 'number', once: 'boolean', do: 'array' },
     apply: (s, e) => {
       const r = normalizeRule(e);
       if (r && s.rules.length < 20) s.rules.push(r);
     },
+  },
+  'rule.lock': {
+    desc: '출구가 번호를 묻는다. 숫자는 1~9 만 쓴다. digits 는 자릿수로 기본 3, 범위 3~6. '
+      + '"비밀번호가 더 길었으면" 같은 글이면 digits 를 올리고, "짧았으면" 이면 내린다. '
+      + '번호는 미로 안 어딘가에 한 자리씩 흩어져 있고, 방명록이 바뀌어도 그대로다.',
+    params: { digits: 'number' },
+    apply: (s, e) => { s.lock = { digits: clamp(e.digits ?? 3, 3, 6) }; },
+  },
+  'lock.shuffle': {
+    desc: '출구 번호를 다시 섞는다. 누군가 방명록에 번호를 적거나 "그 번호 아니다"라고 '
+      + '부정했을 때만 쓴다. 방은 제 번호가 불리는 걸 싫어한다.',
+    params: {},
+    // 섞는 일은 글이 적히는 순간 서버가 한 번 한다 (src/app.js).
+    // 여기서는 아무것도 하지 않는다 — 판을 만들 때마다 다시 섞이면 안 된다.
+    apply: () => {},
   },
   'flavor.text': {
     desc: '장소도 대상도 없는 순수한 분위기. 입장할 때 한 줄로만 나온다. 물건·생물·현상은 여기 말고 object.spawn 으로.',
@@ -226,6 +243,7 @@ export function normalizeSurface(e) {
 /** 최초의 방. 아무것도 없는 빈 공간에 탈출구만 덩그러니. */
 export function initialState() {
   return {
+    lock: null,                 // { digits } — 출구가 번호를 묻는다
     mazeSize: 5,
     traps: 0,
     shifting: false,
@@ -279,7 +297,7 @@ export function catalogForPrompt() {
     .join('\n');
 }
 
-const ONS = ['act', 'enter', 'near', 'every', 'see_monster', 'pickup', 'hurt', 'start', 'door'];
+const ONS = ['act', 'enter', 'near', 'every', 'see_monster', 'pickup', 'hurt', 'start', 'door', 'flicker'];
 const NEEDS_TARGET = ['act', 'enter', 'near', 'pickup'];
 const EFFECT_KEYS = ['deaf', 'noTrigger', 'noGrab', 'slow', 'blind'];
 const oneOf = (v, allowed) => {
@@ -289,7 +307,7 @@ const oneOf = (v, allowed) => {
 
 /** 규칙의 행동 하나. 모르는 행동이면 null, 값은 범위로 자른다. */
 export function normalizeAction(a) {
-  switch (oneOf(a?.act, ['say', 'hp', 'lose_part', 'teleport', 'monster', 'dark', 'give', 'object', 'sound', 'reveal', 'scare'])) {
+  switch (oneOf(a?.act, ['say', 'hp', 'lose_part', 'teleport', 'monster', 'dark', 'give', 'object', 'sound', 'reveal', 'scare', 'random'])) {
     case 'say': {
       if (typeof a.text !== 'string' && typeof a.text !== 'number') return null;
       const text = String(a.text).trim().slice(0, 120);
@@ -318,6 +336,8 @@ export function normalizeAction(a) {
     case 'reveal': return { act: 'reveal', turns: clamp(a.turns ?? 3, 1, 10) };
     // 어떤 식으로 놀래킬지는 엔진이 그때그때 고른다. 적은 사람도 무엇이 올지 모른다.
     case 'scare': return { act: 'scare' };
+    // 무엇이 일어날지 아무도 모른다. 이스터에그처럼 눌러 보는 것에 쓴다.
+    case 'random': return { act: 'random' };
     default: return null;
   }
 }

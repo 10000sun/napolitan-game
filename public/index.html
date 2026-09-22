@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>돌이킬 수 없는</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230a0908'/%3E%3Crect x='7' y='5' width='18' height='22' fill='%23d9d2c2'/%3E%3Cpath d='M10 10h12M10 14h12M10 18h8' stroke='%237d1f1a' stroke-width='1.5'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -85,6 +85,20 @@
     <div id="log" class="log"></div>
     <div id="choices" class="choices"></div>
     <div id="moves" class="choices moves"></div>
+  </div>
+
+  <div id="keypad" class="keypad hidden">
+    <div class="keypad-box">
+      <p class="keypad-title">문에 번호판이 달려 있다</p>
+      <div id="keypad-out" class="keypad-out"></div>
+      <div class="keypad-grid">
+        <button class="key-btn" data-k="1">1</button><button class="key-btn" data-k="2">2</button><button class="key-btn" data-k="3">3</button>
+        <button class="key-btn" data-k="4">4</button><button class="key-btn" data-k="5">5</button><button class="key-btn" data-k="6">6</button>
+        <button class="key-btn" data-k="7">7</button><button class="key-btn" data-k="8">8</button><button class="key-btn" data-k="9">9</button>
+        <button class="key-btn wide" data-k="del">지움</button><button class="key-btn wide ok" data-k="ok">확인</button>
+      </div>
+      <button id="keypad-close" class="btn btn-ghost">물러선다</button>
+    </div>
   </div>
 
   <div id="scare" class="scare hidden" aria-hidden="true"><div id="scare-art" class="scare-art"></div></div>

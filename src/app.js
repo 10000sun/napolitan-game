@@ -144,7 +144,47 @@ async function judgeAndSave(text, user) {
     JSON.stringify(verdict.effects), Date.now(),
   );
   await q.useRunEntry.run(run.id);
-  return { entry, verdict, next: foldEffects([...rules.map((r) => r.effects), verdict.effects]) };
+
+  // 방은 제 번호가 불리는 걸 싫어한다. 적히는 순간 한 번 섞는다.
+  // (판을 만들 때가 아니라 여기서 한 번만 — 매번 섞이면 아무도 못 찾는다.)
+  const next = foldEffects([...rules.map((r) => r.effects), verdict.effects]);
+  if (next.lock && verdict.effects.some((e) => e.type === 'lock.shuffle')) {
+    await shuffleLock(next.lock.digits);
+  }
+  return { entry, verdict, next };
+}
+
+async function unlockRun(request, id, user) {
+  const run = await q.runById.get(Number(id));
+  if (!run || run.user_id !== user.id) return json({ error: '그런 기록이 없습니다.' }, 404);
+  if (!isOpen(run)) return json({ error: '이미 끝난 기록입니다.' }, 409);
+  const { code } = await request.json().catch(() => ({}));
+  const real = (await q.roomGet.get('lock'))?.value || '';
+  const ok = typeof code === 'string' && code.length === real.length && code === real;
+  return json({ ok });
+}
+
+// ── 출구 자물쇠 ─────────────────────────────────────────────
+// 번호는 시드가 아니라 방이 기억한다. 방명록이 바뀌어도 번호는 그대로고,
+// 누가 방명록에서 번호를 입에 올렸을 때만 다시 섞인다.
+function newCode(digits) {
+  // 1~9 만 쓴다. 0 이 없어야 번호판이 3×3 으로 떨어지고, 앞자리가 0 인 번호도 없다.
+  const n = crypto.getRandomValues(new Uint8Array(digits));
+  return [...n].map((v) => (v % 9) + 1).join('');
+}
+
+async function lockCode(digits) {
+  const cur = (await q.roomGet.get('lock'))?.value;
+  if (typeof cur === 'string' && cur.length === digits) return cur;
+  const code = newCode(digits);
+  await q.roomSet.run('lock', code);
+  return code;
+}
+
+async function shuffleLock(digits) {
+  const code = newCode(digits);
+  await q.roomSet.run('lock', code);
+  return code;
 }
 
 // ── 런 ──────────────────────────────────────────────────────
@@ -152,7 +192,9 @@ async function startRun(user) {
   if (!(await hasReadBook(user.id))) return json({ error: '공책을 먼저 읽어야 문이 열린다.' }, 409);
   if (!(await canEnter(user.id))) return json({ error: '문이 열리지 않는다. 다른 누군가가 먼저 들어가야 한다.' }, 409);
   const rules = await loadAppliedRules();
-  const world = buildWorld(rules, await q.recentDeaths.all());
+  const st = foldEffects(rules.map((r) => r.effects));
+  const code = st.lock ? await lockCode(st.lock.digits) : null;
+  const world = buildWorld(rules, await q.recentDeaths.all(), code);
   // 모습은 DB 에서 꺼내기만 한다. 여기서는 아무것도 새로 만들지 않는다.
   world.objects = await Promise.all(world.objects.map(async (o) => ({ ...o, img: await imgFor(o.key) })));
   world.items = await Promise.all(world.items.map(async (it) => ({ ...it, img: ITEM_ASSETS[it.kind] ? await imgFor(ITEM_ASSETS[it.kind].key) : null })));
@@ -244,6 +286,8 @@ export async function handle(request) {
     if (writes && method === 'POST' && !user) return json({ error: NEEDS_LOGIN }, 401);
     if (p === '/api/guestbook' && method === 'POST') return await writeBook(request, user);
     if (p === '/api/run/start' && method === 'POST') return await startRun(user);
+    const u = /^\/api\/run\/(\d+)\/unlock$/.exec(p);
+    if (u && method === 'POST') return await unlockRun(request, u[1], user);
     const m = /^\/api\/run\/(\d+)\/(clear|die)$/.exec(p);
     if (m && method === 'POST') return await (m[2] === 'clear' ? clearRun(request, m[1], user) : dieRun(request, m[1], user));
     return json({ error: '없는 길입니다.' }, 404);

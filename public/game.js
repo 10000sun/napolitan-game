@@ -131,6 +131,7 @@ export class Game {
     this.items = world.items.filter((it) => !it.auto)
       .map((it) => ({ ...it, x: Math.floor(it.x), y: Math.floor(it.y), taken: false }));
     this.baits = [];
+    this.unlocked = false;          // 출구 번호를 이미 맞췄는가
     this.pendingTurns = 0;
     this.event = null;              // 진행 중인 후속 이벤트 { id, monster }
     this.specials = new Map();      // 조우 대상 id → 뽑힌 특수 행동 (한 번만 뽑는다)
@@ -370,9 +371,14 @@ export class Game {
     const sight = this.monsterInSight();
 
     if (this.atExit()) {
-      out.push(this.s.exitCost === 'random_body_part'
-        ? { id: 'exit', label: '무언가를 두고 나간다', kind: 'exit' }
-        : { id: 'exit', label: '문을 연다', kind: 'exit' });
+      // 번호가 걸려 있으면 그게 먼저다. 풀고 나서야 문을 열 수 있다.
+      if (this.w.lock && !this.unlocked) {
+        out.push({ id: 'keypad', label: '번호를 누른다', hint: `${this.w.lock.digits}자리`, kind: 'exit' });
+      } else {
+        out.push(this.s.exitCost === 'random_body_part'
+          ? { id: 'exit', label: '무언가를 두고 나간다', kind: 'exit' }
+          : { id: 'exit', label: '문을 연다', kind: 'exit' });
+      }
     }
 
     const it = this.itemHere();
@@ -454,6 +460,10 @@ export class Game {
       case 'shoot': this.shoot(); break;
       case 'melee': this.melee(); break;
       case 'bait': this.throwBait(); break;
+      case 'keypad':
+        spendsTurn = false;          // 번호판을 여는 것만으로는 시간이 가지 않는다
+        this.hooks.onKeypad?.({ digits: this.w.lock.digits });
+        break;
       case 'exit': this.tryExit(); break;
       default:
         if (id.startsWith('ev:')) { this.eventChoice(Number(id.slice(3))); break; }
@@ -640,6 +650,7 @@ export class Game {
           }
           break;
         case 'scare': this.fireScare(); break;
+        case 'random': this.doActions([this.rollRandom()], target); break;
         case 'reveal':
           this.revealTurns = Math.max(this.revealTurns, a.turns);
           this.mm.style.display = '';
@@ -650,6 +661,31 @@ export class Game {
     this.decalFrame = 0;
     // 주변이 바뀌었을 때만 다시 둘러본다 (문장만 나온 규칙에 서술이 겹치지 않게)
     if (!this.dead && acts.some((a) => ['teleport', 'object', 'monster'].includes(a.act))) this.describe();
+  }
+
+  /**
+   * 무엇이 나올지 모르는 한 번. 이스터에그를 눌렀을 때 쓴다.
+   * 출구로 보내는 순간이동은 넣지 않는다 — 누르기만 하면 이기는 건 게임이 아니다.
+   */
+  rollRandom() {
+    const pool = [
+      { act: 'scare' },
+      { act: 'monster', do: 'spawn', count: 1 },
+      { act: 'monster', do: 'flee' },
+      { act: 'hp', amount: -20 },
+      { act: 'hp', amount: 25 },
+      { act: 'give', item: 'pistol' },
+      { act: 'give', item: 'ammo', count: 8 },
+      { act: 'give', item: 'knife' },
+      { act: 'give', item: 'map' },
+      { act: 'dark', turns: 2 },
+      { act: 'reveal', turns: 4 },
+      { act: 'teleport', to: 'random' },
+      { act: 'sound', kind: 'whisper' },
+      { act: 'say', text: '아무 일도 일어나지 않았다.' },
+      { act: 'say', text: '손끝이 잠깐 차가워졌다가 만다.' },
+    ];
+    return pool[Math.floor(Math.random() * pool.length)];
   }
 
   /* ── 깜놀 ──────────────────────────────────────────
@@ -964,6 +1000,24 @@ export class Game {
     if (this.fx.has('deaf')) this.audio.muted = true;
   }
 
+  /** 번호판 결과. 서버가 맞다고 해야 열린다. */
+  unlockResult(ok) {
+    if (this.dead || this.won) return;
+    if (ok) {
+      this.unlocked = true;
+      this.audio.door();
+      this.log('딸깍. 잠금이 풀렸다.');
+      this.pushState();
+      return;
+    }
+    // 틀려도 체력은 깎지 않는다. 대신 소리가 난다 — 그 소리를 듣고 모인다.
+    if (!this.fx.has('deaf')) this.audio.blip(150, 0.3, 'square', 0.09);
+    this.log('맞지 않는다. 헛도는 소리가 복도를 타고 퍼진다.', 'bad');
+    this.baits.push({ x: this.cx, y: this.cy, life: 3 });
+    this.endTurn();
+    this.pushState();
+  }
+
   escape() {
     if (this.won || this.dead) return;
     this.won = true;
@@ -1214,10 +1268,20 @@ export class Game {
     }
   }
 
-  /** 형광등 깜빡임. 가끔 0.1~0.3초 어두워진다. */
+  /**
+   * 형광등 깜빡임. 가끔 0.1~0.3초 어두워진다.
+   * "가끔 ~했으면" 같은 소원은 이 박자에 얹는다 — 방이 이미 제 주기를 갖고 있으니
+   * 따로 숫자를 정해 주는 것보다 이쪽이 자연스럽다.
+   */
   flicker() {
     const now = performance.now();
-    if (now > this.flickerUntil && Math.random() < 0.004) this.flickerUntil = now + 100 + Math.random() * 200;
+    if (now > this.flickerUntil && Math.random() < 0.004) {
+      this.flickerUntil = now + 100 + Math.random() * 200;
+      if (!this.dead && !this.won && !this.frozen) {
+        const acts = this.rules.flicker();
+        if (acts.length) { this.doActions(acts); this.pushState(); }
+      }
+    }
     return now < this.flickerUntil ? 0.55 : 1;
   }
 

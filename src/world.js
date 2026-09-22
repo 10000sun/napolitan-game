@@ -120,8 +120,9 @@ function objectOut(o, c, i) {
  * 반영된 규칙 목록 → 플레이 가능한 월드.
  * @param {Array<{id:number, effects:Array}>} appliedRules 시간순
  * @param {Array<{x:number, y:number}>} deaths 최근 사망 칸 (최신순). 미로 구조에는 영향 없음
+ * @param {string|null} lockCode 출구 자물쇠 번호. 방이 기억하는 값이라 밖에서 받는다
  */
-export function buildWorld(appliedRules, deaths = []) {
+export function buildWorld(appliedRules, deaths = [], lockCode = null) {
   const state = foldEffects(appliedRules.map((r) => r.effects));
 
   // 시드는 반영된 규칙 id 들로만 결정된다 → 방명록이 그대로면 미로도 그대로.
@@ -240,6 +241,24 @@ export function buildWorld(appliedRules, deaths = []) {
     corpses.push(c);
   }
 
+  // ── 자물쇠 숫자. 한 자리씩 흩어 두되, 반드시 갈 수 있는 칸에만 둔다.
+  // 못 찾으면 아무도 못 나가고, 못 나가면 방명록도 못 써서 방이 영영 잠긴다.
+  if (state.lock && lockCode) {
+    const free = pool.filter((c) => !used.has(`${c.x},${c.y}`));
+    [...String(lockCode)].forEach((ch, i) => {
+      const c = free[Math.floor((free.length / state.lock.digits) * i)] || free[i];
+      if (!c) return;
+      used.add(`${c.x},${c.y}`);
+      objects.push({
+        id: `lock:${i}`, key: `숫자 조각 ${i + 1}`, name: `${i + 1}번째 숫자`,
+        emoji: ch, x: c.x, y: c.y,
+        where: 'anywhere', use: 'none', moves: 'still', pose: 'stand',
+        desc: `벽에 ${ch} 하나가 크게 새겨져 있다. ${i + 1}번째 자리다.`,
+        stand: true,      // 납작하게 칠하지 않는다. 무엇인지 알아볼 수 있어야 한다
+      });
+    });
+  }
+
   // 방에 없는 것을 대상으로 한 규칙은 내려보내지 않는다.
   const ITEM_KEYS = { pistol: '권총', knife: '칼', map: '지도' };
   const present = new Set([...objects.map((o) => o.key), ...items.map((it) => ITEM_KEYS[it.kind])]);
@@ -260,6 +279,7 @@ export function buildWorld(appliedRules, deaths = []) {
     items,
     objects,
     layout,
+    lock: state.lock ? { digits: state.lock.digits } : null,
     monsterLook: state.monsterLook,
     surfaces: state.surfaces,
     rules,

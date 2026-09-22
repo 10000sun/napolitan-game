@@ -22,6 +22,10 @@ export function queries(store) {
     ON CONFLICT(discord_id) DO UPDATE SET username = excluded.username, avatar = excluded.avatar
     RETURNING *`),
     userById: stmt('SELECT * FROM users WHERE id = ?'),
+    // 방이 기억하는 값 (지금은 자물쇠 번호)
+    roomGet: stmt('SELECT value FROM room WHERE key = ?'),
+    roomSet: stmt(`INSERT INTO room (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value`),
   // 공책에 남는 건 글뿐이다. 누가 썼는지도, 그 글이 먹혔는지도 밖으로 내보내지 않는다.
   // (판정과 작성자는 DB 에 그대로 남아 있으니 운영자는 언제든 들여다볼 수 있다.)
     allEntries: stmt('SELECT id, raw_text FROM entries ORDER BY id ASC'),

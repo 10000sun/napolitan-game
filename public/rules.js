@@ -32,6 +32,11 @@ export class RuleEngine {
 
   act(i) { return this.rules[i]?.on === 'act' ? this.roll(i) : []; }
 
+  /** 형광등이 깜빡이는 그 순간. 방이 제 박자를 가지고 있고, 소원은 거기 얹힌다. */
+  flicker() {
+    return this.rules.flatMap((r, i) => (r.on === 'flicker' ? this.roll(i) : []));
+  }
+
   pickup(key) {
     return this.rules.flatMap((r, i) => (r.on === 'pickup' && r.target === key ? this.roll(i) : []));
   }
