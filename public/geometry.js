@@ -25,3 +25,6 @@ export function raySegment(px, py, rdx, rdy, ax, ay, bx, by) {
 export function wallU(side, rdx, rdy, wallX) {
   return (side === 0 && rdx < 0) || (side === 1 && rdy > 0) ? 1 - wallX : wallX;
 }
+
+/** 거리 d 에서 안개가 얼마나 덮는가 (0~1). 벽·바닥·물체가 모두 이 값을 쓴다. */
+export const fogOf = (d, blind) => Math.min(1, d / (blind ? 1.2 : 6.5));

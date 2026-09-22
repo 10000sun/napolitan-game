@@ -121,16 +121,29 @@ export function decalPixels(key, source, emoji) {
 const filteredCache = new Map();
 const LEVELS = [1, 0.8, 0.6, 0.42, 0.28, 0.16];
 
-/** 기괴 보정 + 밝기를 미리 입힌 캔버스. 밝기는 몇 단계로 나눠 캐시한다. */
-export function filteredCanvas(key, source, brightness = 1) {
-  const level = LEVELS.reduce((a, b) => (Math.abs(b - brightness) < Math.abs(a - brightness) ? b : a));
-  const k = `${key}|${level}`;
+const FOG_LEVELS = [0, 0.2, 0.4, 0.6, 0.8, 0.95];
+const nearest = (list, v) => list.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
+
+/**
+ * 기괴 보정 + 밝기 + 안개를 미리 입힌 캔버스. 몇 단계로 나눠 캐시한다.
+ * fogColor 는 [r,g,b], fog 는 0~1. 안개는 그림이 있는 픽셀에만 덮인다.
+ */
+export function filteredCanvas(key, source, brightness = 1, fog = 0, fogColor = [0, 0, 0]) {
+  const level = nearest(LEVELS, brightness);
+  const fl = nearest(FOG_LEVELS, fog);
+  const k = `${key}|${level}|${fl}|${fogColor.join()}`;
   if (filteredCache.has(k)) return filteredCache.get(k);
   const c = document.createElement('canvas');
   c.width = source.width; c.height = source.height;
   const g = c.getContext('2d');
   if (FILTER_OK) g.filter = `grayscale(.7) sepia(.45) contrast(1.3) brightness(${level})`;
   g.drawImage(source, 0, 0);
+  if (fl > 0) {
+    g.filter = 'none';
+    g.globalCompositeOperation = 'source-atop';
+    g.fillStyle = `rgba(${fogColor.map(Math.round).join(',')},${fl})`;
+    g.fillRect(0, 0, c.width, c.height);
+  }
   filteredCache.set(k, c);
   return c;
 }

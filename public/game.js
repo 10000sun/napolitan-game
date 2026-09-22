@@ -9,7 +9,7 @@
 
 import { sprite, drawUncanny, stretchFor, emojiCanvas, decalPixels, filteredCanvas } from '/uncanny.js';
 import { TEX, buildSurfaces, lightTile } from '/textures.js';
-import { faceOf, raySegment, wallU } from '/geometry.js';
+import { faceOf, raySegment, wallU, fogOf } from '/geometry.js';
 import { RuleEngine } from '/rules.js';
 import { nextStep, wanderStep } from '/paths.js';
 import { pickPart, effectsOf, severityOf } from '/body.js';
@@ -1345,7 +1345,7 @@ export class Game {
       for (const [a, b] of runs) c.rect(a, 0, b - a + 1, rh);
       c.clip();
       if (s.kind === 'object') s.ref.visible = true;
-      this.paintSprite(s.kind, screenX, top, bottom, w, fog, ty, s.ref);
+      this.paintFogged(s, screenX, top, bottom, w, h, fog, ty);
       c.restore();
     }
 
@@ -1357,6 +1357,34 @@ export class Game {
       }
       o.wasVisible = o.visible;
     }
+  }
+
+  /**
+   * 스프라이트를 작은 캔버스에 따로 그린 뒤, 그 픽셀에만 벽과 같은 안개를 덮어 화면에 옮긴다.
+   * (화면에 바로 덮으면 뒤의 벽까지 두 번 흐려진다.)
+   */
+  paintFogged(s, screenX, top, bottom, w, h, fog, ty) {
+    const main = this.ctx;
+    const f = fogOf(ty, this.fx.has('blind'));
+    const x0 = Math.max(0, Math.floor(screenX - w * 0.9)), x1 = Math.min(this.rw, Math.ceil(screenX + w * 0.9));
+    const y0 = Math.max(0, Math.floor(top - h * 0.5)), y1 = Math.min(this.rh, Math.ceil(bottom + 2));
+    const bw = x1 - x0, bh = y1 - y0;
+    if (f < 0.02 || bw <= 0 || bh <= 0) { this.paintSprite(s.kind, screenX, top, bottom, w, fog, ty, s.ref); return; }
+    if (!this.scratch) { this.scratch = document.createElement('canvas'); this.scratchCtx = this.scratch.getContext('2d'); }
+    const sc = this.scratch, g = this.scratchCtx;
+    if (sc.width < bw || sc.height < bh) { sc.width = Math.max(sc.width, bw); sc.height = Math.max(sc.height, bh); }
+    g.clearRect(0, 0, bw, bh);
+    g.save();
+    g.translate(-x0, -y0);
+    this.ctx = g;
+    try { this.paintSprite(s.kind, screenX, top, bottom, w, fog, ty, s.ref); } finally { this.ctx = main; }
+    g.restore();
+    const dark = this.fx.has('blind') ? 0.35 : 1;
+    g.globalCompositeOperation = 'source-atop';
+    g.fillStyle = `rgba(${FOG.map((v) => Math.round(v * dark)).join(',')},${f.toFixed(3)})`;
+    g.fillRect(0, 0, bw, bh);
+    g.globalCompositeOperation = 'source-over';
+    main.drawImage(sc, 0, 0, bw, bh, x0, y0, bw, bh);
   }
 
   /** 방향이 고정된 판. 옆에서 보면 얇아지고, 나를 쳐다보지 않는다. */
@@ -1393,7 +1421,7 @@ export class Game {
       if (!hit || hit.t >= this.zBuf[x] || hit.t < 0.2 || (blind && hit.t > 1.5)) continue;
       drawn = true;
       // 멀수록 어둡다. 밝기 단계마다 보정 필터를 미리 입힌 캔버스를 쓴다 (열마다 필터를 걸면 느리다).
-      const src = filteredCanvas(key, source, Math.max(0.16, Math.min(1, 5.2 / hit.t)));
+      const src = filteredCanvas(key, source, Math.max(0.16, Math.min(1, 5.2 / hit.t)), fogOf(hit.t, blind), blind ? FOG.map((v) => v * 0.35) : FOG);
       const unit = rh / hit.t;
       const bottom = rh / 2 + unit / 2;
       const top = bottom - unit * 0.7 * o.stretch;
