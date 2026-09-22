@@ -75,6 +75,56 @@ class Audio2 {
   door() { this.blip(180, 0.5, 'sine', 0.12); }
   growl() { this.blip(55 + Math.random() * 20, 0.35, 'sawtooth', 0.06); }
   step() { this.blip(120, 0.06, 'sine', 0.04); }
+
+  /**
+   * 방이 내는 소리. 파일을 받아오지 않고 만들어 낸다 — 저주파 두 겹과
+   * 형광등 잡음. 아주 작게 깔아 두면 정적이 사라지고 공간이 생긴다.
+   * 멜로디는 넣지 않는다. 음악이 깔리면 괴담이 게임이 된다.
+   */
+  ambient(on) {
+    if (!this.ctx) return;
+    if (!on) {
+      if (this.amb) { try { this.amb.stop(); } catch { /* 이미 끊겼다 */ } this.amb = null; }
+      return;
+    }
+    if (this.amb) return;
+    const t = this.ctx.currentTime;
+    const out = this.ctx.createGain();
+    out.gain.setValueAtTime(0, t);
+    out.gain.linearRampToValueAtTime(0.05, t + 3);
+    out.connect(this.ctx.destination);
+
+    const drone = [41, 61.5].map((f, i) => {
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(f, t);
+      g.gain.value = i ? 0.35 : 0.6;
+      o.connect(g).connect(out); o.start(t);
+      return o;
+    });
+
+    // 형광등이 내는 잡음. 좁은 대역만 남겨 쉭 소리로.
+    const n = this.ctx.createBufferSource();
+    const len = this.ctx.sampleRate * 2;
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    n.buffer = buf; n.loop = true;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 3200; bp.Q.value = 6;
+    const ng = this.ctx.createGain(); ng.gain.value = 0.12;
+    n.connect(bp).connect(ng).connect(out); n.start(t);
+
+    this.amb = { stop: () => { for (const o of drone) o.stop(); n.stop(); out.disconnect(); } };
+  }
+
+  /** 뒤에서 나는 발소리. 가까울수록 낮고 크다. */
+  thud(dist) {
+    const k = Math.max(0, Math.min(1, 1 - dist / 14));
+    if (k <= 0.05) return;
+    this.blip(34 + k * 26, 0.16 + k * 0.12, 'sine', 0.03 + k * 0.1);
+    this.noise(0.07, 0.02 + k * 0.05);
+  }
 }
 
 /* ── 게임 ─────────────────────────────────────────── */
@@ -201,6 +251,7 @@ export class Game {
   /* ── 수명주기 ─────────────────────────────────── */
   start() {
     this.audio.resume();
+    this.audio.ambient(true);
     this.lastT = performance.now();
     const loop = (t) => {
       this.raf = requestAnimationFrame(loop);
@@ -223,6 +274,7 @@ export class Game {
   }
 
   stop() {
+    this.audio.ambient(false);
     cancelAnimationFrame(this.raf);
     window.removeEventListener('resize', this._onResize);
     window.removeEventListener('keydown', this._onKey);
@@ -470,6 +522,8 @@ export class Game {
         if (id.startsWith('sp:')) { this.special(id.slice(3)); break; }
         if (id.startsWith('rule:')) {
           const i = Number(id.slice(5));
+          this.hooks.onFeel?.({ kind: 'act' });
+          this.audio.blip(260, 0.09, 'triangle', 0.05);
           const acts = this.rules.act(i);
           if (acts.length) this.doActions(acts, this.rules.rules[i]?.target, true);
           else this.log('아무 일도 일어나지 않았다.');
@@ -506,6 +560,8 @@ export class Game {
     if (!it) return;
     it.taken = true;
     this.audio.pickup();
+    // 로그 한 줄로 끝나면 무엇을 주웠는지 눈에 남지 않는다.
+    this.hooks.onFeel?.({ kind: 'pickup', text: ITEM_NAME[it.kind] || '무언가', img: it.img || null });
     if (it.kind === 'pistol') {
       this.hasPistol = true;
       this.rangedName = '권총';
@@ -530,6 +586,7 @@ export class Game {
     if (!o) return;
     o.taken = true;
     this.audio.pickup();
+    this.hooks.onFeel?.({ kind: 'pickup', text: o.name, img: o.img || null });
     if (o.use === 'ranged') {
       this.hasPistol = true;
       this.rangedName = o.name;
@@ -1119,9 +1176,14 @@ export class Game {
       }
     }
     for (const m of this.monsters) { if (m.stun > 0) m.stun--; else if (m.stun < 0) m.stun = 0; }
-    const near = this.monsters.filter((m) => m.alive)
-      .some((m) => Math.abs(m.x - this.cx) + Math.abs(m.y - this.cy) <= 3);
-    if (near && !this.fx.has('deaf')) { this.audio.growl(); this.log('숨소리가 가깝다.', 'bad'); }
+    // 가장 가까운 것까지의 거리를 소리로 알린다. 안 보여도 어디쯤 있는지 느껴져야
+    // 복도를 걷는 일이 작업이 아니라 눈치 보는 일이 된다.
+    const live = this.monsters.filter((m) => m.alive);
+    if (live.length && !this.fx.has('deaf')) {
+      const d = Math.min(...live.map((m) => Math.abs(m.x - this.cx) + Math.abs(m.y - this.cy)));
+      this.audio.thud(d);
+      if (d <= 3) { this.audio.growl(); this.log('숨소리가 가깝다.', 'bad'); }
+    }
   }
 
   /** 물었으면 그 턴은 거기서 멈춘다. 가끔은 살점을 뜯어 간다. */

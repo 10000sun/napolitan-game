@@ -2,11 +2,19 @@
 import { q } from './db.js';
 import { sanitizeParts } from '../public/body.js';
 
-/** 가장 최근에 시작된 런이 내 것이면 들어갈 수 없다. 방명록을 혼자 차지하지 못하게. */
-export async function canEnter(userId) {
+/** 연달아 들어가지 못하고 기다려야 하는 시간. 아무도 오지 않을 때 방이 잠기지 않게. */
+export const SOLO_WAIT_MS = 5 * 60 * 1000;
+
+/**
+ * 가장 최근에 들어간 사람이 나면 다른 누군가가 먼저 들어가야 한다.
+ * 방명록을 혼자 차지하지 못하게. 다만 5분이 지나면 그냥 들어갈 수 있다 —
+ * 100명이라도 새벽에는 아무도 없고, 그때 방이 잠겨 버리면 곤란하다.
+ */
+export async function canEnter(userId, now = Date.now()) {
   if (process.env.DEV_NO_AUTH === '1') return true;
   const last = await q.lastRun.get();
-  return !last || last.user_id !== userId;
+  if (!last || last.user_id !== userId) return true;
+  return now - (last.started_at ?? 0) >= SOLO_WAIT_MS;
 }
 
 export async function bodyOf(userId) {

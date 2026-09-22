@@ -128,6 +128,7 @@ async function enterRoom() {
       onHit: flashRed,
       onScare: showScare,
       onKeypad: showKeypad,
+      onFeel: showFeel,
       onEnd: endRun,
     }, body);
     game.start();
@@ -178,6 +179,23 @@ function renderHud(h) {
   $('hud-gear').innerHTML = gear.join(' · ');
 
   $('hud-turns').innerHTML = h.lost?.length ? `없음 <b class="low">${escapeHtml(h.lost.join(', '))}</b>` : '';
+}
+
+/** 손에 무엇이 들어왔는지, 무엇을 건드렸는지 눈에 한 번 남긴다. */
+function showFeel({ kind, text, img }) {
+  if (kind === 'act') {
+    const g = $('game');
+    g.classList.add('felt');
+    clearTimeout(showFeel._p);
+    showFeel._p = setTimeout(() => g.classList.remove('felt'), 220);
+    return;
+  }
+  const el = $('got');
+  el.innerHTML = (img ? `<img src="${escapeHtml(img)}" alt="">` : '')
+    + `<span>${escapeHtml(text)}</span>`;
+  el.className = 'got on';
+  clearTimeout(showFeel._t);
+  showFeel._t = setTimeout(() => { el.className = 'got'; }, 1300);
 }
 
 /* ── 번호판 ───────────────────────────────────────── */

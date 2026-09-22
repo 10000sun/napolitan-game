@@ -59,7 +59,7 @@ export function queries(store) {
     insertAsset: stmt(`
     INSERT OR REPLACE INTO assets (key, tags, source, file, status, created_at, kind) VALUES (?, ?, ?, ?, ?, ?, ?)`),
     generatedSince: stmt('SELECT COUNT(*) AS n FROM assets WHERE source = ? AND created_at >= ?'),
-    lastRun: stmt('SELECT user_id FROM runs ORDER BY id DESC LIMIT 1'),
+    lastRun: stmt('SELECT user_id, started_at FROM runs ORDER BY id DESC LIMIT 1'),
     bodyOf: stmt('SELECT lost_parts FROM users WHERE id = ?'),
     setBody: stmt('UPDATE users SET lost_parts = ? WHERE id = ?'),
     readBook: stmt('SELECT read_book FROM users WHERE id = ?'),

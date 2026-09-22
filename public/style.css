@@ -493,3 +493,32 @@ code, .mono { font-family: 'Nanum Gothic Coding', monospace; }
 .key-btn:hover::before { background: linear-gradient(168deg, rgba(60,50,37,.96), rgba(30,25,19,.96)); box-shadow: inset 0 0 0 1px rgba(209,160,73,.4); }
 .key-btn:active { transform: translateY(1px); }
 .key-btn:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+
+
+/* ── 손에 들어온 것 ───────────────────────────────*/
+.got {
+  position: absolute; left: 50%; top: 34%; z-index: 35;
+  transform: translate(-50%, -6px); pointer-events: none;
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 20px; opacity: 0;
+  font-family: 'Nanum Myeongjo', serif; font-size: 18px; color: #f0e4c8;
+  text-shadow: 0 2px 10px #000;
+  background: rgba(10, 8, 6, .72);
+  box-shadow: inset 0 0 0 1px rgba(209,160,73,.4);
+  transition: opacity .25s, transform .25s;
+}
+.got.on { opacity: 1; transform: translate(-50%, 0); }
+.got img { width: 54px; height: 54px; object-fit: contain; filter: brightness(1.15); }
+
+/* 무언가를 건드렸을 때 화면이 한 번 반응한다 */
+#game.felt::after {
+  content: ''; position: absolute; inset: 0; z-index: 34; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 55%, rgba(209,160,73,.16), transparent 62%);
+  animation: felt .22s ease-out both;
+}
+@keyframes felt { from { opacity: 1; } to { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .got { transition: none; }
+  #game.felt::after { animation: none; opacity: 0; }
+}

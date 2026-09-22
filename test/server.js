@@ -6,7 +6,7 @@ const { nodeStore } = await import('../src/store.js');
 useStore(await nodeStore());
 const { q } = await import('../src/db.js'); // useStore 뒤에 꺼내야 연결된 q
 const { verifyLink } = await import('../src/link.js');
-const { canEnter, bodyOf, saveBodyOnClear, resetBody, isOpen, hasReadBook, markBookRead } = await import('../src/runs.js');
+const { canEnter, SOLO_WAIT_MS, bodyOf, saveBodyOnClear, resetBody, isOpen, hasReadBook, markBookRead } = await import('../src/runs.js');
 
 let fail = 0;
 const check = (c, label) => { console.log(`  ${c ? '✓' : '✗'} ${label}`); if (!c) fail++; };
@@ -19,6 +19,11 @@ check(!await canEnter(a), '방금 내가 들어갔으면 다시 못 들어간다
 check(await canEnter(b), '다른 사람은 들어갈 수 있다');
 (await q.insertRun.get(b, 1, 0, Date.now()));
 check(await canEnter(a), '다른 사람이 들어간 뒤에는 다시 들어갈 수 있다');
+// 아무도 오지 않는 시간대에 방이 잠겨 버리면 곤란하다
+const t = Date.now();
+(await q.insertRun.get(b, 1, 0, t));
+check(!await canEnter(b, t + SOLO_WAIT_MS - 1000), '5분이 되기 전에는 혼자 다시 못 들어간다');
+check(await canEnter(b, t + SOLO_WAIT_MS), '5분이 지나면 혼자서도 들어갈 수 있다');
 process.env.DEV_NO_AUTH = '1';
 check(await canEnter(b), '혼자 테스트하는 모드에서는 막지 않는다');
 delete process.env.DEV_NO_AUTH;
