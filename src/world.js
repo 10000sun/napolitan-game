@@ -241,7 +241,10 @@ export function buildWorld(appliedRules, deaths = []) {
   // 방에 없는 것을 대상으로 한 규칙은 내려보내지 않는다.
   const ITEM_KEYS = { pistol: '권총', knife: '칼', map: '지도' };
   const present = new Set([...objects.map((o) => o.key), ...items.map((it) => ITEM_KEYS[it.kind])]);
-  const rules = state.rules.filter((r) => !r.target || present.has(r.target));
+  // 줍기 규칙은 주울 수 있는 것에만 (지도는 지니고 들어오고, 쓰임 없는 물체는 주울 수 없다)
+  const pickable = new Set([...objects.filter((o) => o.use !== 'none').map((o) => o.key),
+    ...items.filter((it) => !it.auto).map((it) => ITEM_KEYS[it.kind])]);
+  const rules = state.rules.filter((r) => !r.target || (r.on === 'pickup' ? pickable : present).has(r.target));
 
   return {
     seed,

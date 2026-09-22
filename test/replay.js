@@ -170,6 +170,15 @@ const rw = buildWorld([{ id: 1, effects: [
 ] }]);
 check(rw.rules?.length === 3 && !rw.rules.some((r) => r.target === '거울'), '방에 없는 대상의 규칙은 빠진다 (권총은 아이템 이름으로 있다)');
 
+const pw2 = buildWorld([{ id: 1, effects: [
+  { type: 'item.map', value: true }, { type: 'item.knife', value: true },
+  { type: 'object.spawn', name: '돌', emoji: '🪨' },
+  { type: 'rule.when', on: 'pickup', target: '지도', do: [{ act: 'say', text: 'x' }] },
+  { type: 'rule.when', on: 'pickup', target: '칼', do: [{ act: 'say', text: 'x' }] },
+  { type: 'rule.when', on: 'pickup', target: '돌', do: [{ act: 'say', text: 'x' }] },
+] }]);
+check(pw2.rules.map((r) => r.target).join() === '칼', '주울 수 없는 것(지니고 들어오는 지도, 쓰임 없는 물체)의 줍기 규칙은 빠진다');
+
 const crowd = buildWorld([{ id: 1, effects: Array.from({ length: 30 }, (_, i) => ({ type: 'object.spawn', name: `e${i}`, where: 'entrance', count: 5 })) }]);
 check(crowd.objects.length === 7, '빈 칸이 모자라면 놓을 수 있는 만큼만 (5×5 빈 방: 바닥 9 - 시작 - 출구)');
 

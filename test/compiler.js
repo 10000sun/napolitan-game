@@ -170,5 +170,8 @@ st = foldEffects(Array.from({ length: 25 }, (_, i) => [{ type: 'rule.when', on: 
 check(st.rules.length === 20 && st.rules[0].n === 1, '규칙은 먼저 적힌 20개까지');
 check(JSON.stringify(foldEffects([]).rules) === '[]', '기본 규칙은 없다');
 
+check(normalizeRule({ on: 'start', once: 'false', do: [{ act: 'say', text: 'x' }] }).once === false && normalizeRule({ on: 'start', once: 'true', do: [{ act: 'say', text: 'x' }] }).once === true, 'once 는 문자열도 뜻대로');
+check(normalizeRule({ on: 'start', do: [{ act: 'say', text: { a: 1 } }, { act: 'say', text: 7 }] }).do.map((a) => a.text).join() === '7', 'say 는 글자나 숫자만');
+
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);

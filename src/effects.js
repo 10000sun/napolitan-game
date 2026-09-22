@@ -291,7 +291,8 @@ const oneOf = (v, allowed) => {
 export function normalizeAction(a) {
   switch (oneOf(a?.act, ['say', 'hp', 'lose_part', 'teleport', 'monster', 'dark', 'give', 'object', 'sound', 'reveal'])) {
     case 'say': {
-      const text = String(a.text ?? '').trim().slice(0, 120);
+      if (typeof a.text !== 'string' && typeof a.text !== 'number') return null;
+      const text = String(a.text).trim().slice(0, 120);
       return text ? { act: 'say', text } : null;
     }
     case 'hp': {
@@ -334,7 +335,7 @@ export function normalizeRule(e) {
     verb: on === 'act' ? (String(e.verb ?? '').trim().slice(0, 20) || '만진다') : null,
     n: on === 'every' ? clamp(e.n ?? 5, 1, 50) : on === 'hurt' ? clamp(e.n ?? 30, 1, 99) : null,
     chance: Math.max(0.05, Math.min(1, Number(e.chance ?? 1) || 0)),
-    once: !!e.once,
+    once: e.once === true || String(e.once).toLowerCase() === 'true',
     do: actions,
   };
 }

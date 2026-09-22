@@ -141,5 +141,8 @@ check([1, 4, 7, 8].map((turn) => eng.update(S({ turn })).length).join('') === '0
 eng = new RuleEngine([{ on: 'enter', target: '시체', chance: 1, once: false, do: [{ act: 'object', do: 'vanish' }] }], () => 0);
 check(eng.update(S({ here: new Set(['시체']) }))[0]?.target === '시체', '자동 발동한 행동도 자기 규칙의 대상을 안다');
 
+eng = new RuleEngine([{ on: 'act', target: '거울', verb: '본다', chance: 0.5, once: true, do: say('b') }], () => 0.9);
+check(eng.act(0).length === 0 && eng.buttons(new Set(['거울'])).length === 1, 'once 는 실제로 일어났을 때만 소모된다');
+
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);

@@ -19,8 +19,9 @@ export class RuleEngine {
   roll(i) {
     const r = this.rules[i];
     if (!r || this.spent.has(i)) return [];
-    if (r.once) this.spent.add(i);
-    return this.rng() < r.chance ? r.do : [];
+    if (this.rng() >= r.chance) return [];
+    if (r.once) this.spent.add(i);   // 실제로 일어났을 때만 한 번이 소모된다
+    return r.do;
   }
 
   /** 지금 누를 수 있는 버튼. keys: 발밑·바로 앞에 있는 물체 key */

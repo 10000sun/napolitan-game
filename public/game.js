@@ -348,10 +348,6 @@ export class Game {
       });
       return out;
     }
-    for (const { rule, i } of this.rules.buttons(this.reachKeys())) {
-      const o = this.objects.find((x) => !x.taken && x.key === rule.target);
-      if (o) out.push({ id: `rule:${i}`, label: `${o.name}을(를) ${rule.verb}`, kind: 'act' });
-    }
     const a = this.ahead();
     const blocked = this.wall(a.x, a.y);
     const sight = this.monsterInSight();
@@ -402,6 +398,10 @@ export class Game {
     out.push({ id: 'left', label: '왼쪽으로 돈다', kind: 'turn' });
     out.push({ id: 'right', label: '오른쪽으로 돈다', kind: 'turn' });
     out.push({ id: 'back', label: '뒤돌아선다', kind: 'turn' });
+    for (const { rule, i } of this.rules.buttons(this.reachKeys())) {
+      const o = this.objects.find((x) => !x.taken && x.key === rule.target);
+      out.push({ id: `rule:${i}`, label: `${o ? o.name : rule.target}을(를) ${rule.verb}`, kind: 'act' });
+    }
     return out;
   }
 
@@ -547,10 +547,22 @@ export class Game {
   }
 
   /** 규칙이 볼 지금 상태. */
+  /** 규칙이 볼 수 있는 것들과 그것에 다가갈 수 있는 칸. 벽 물체는 그 벽면 앞 칸. */
+  ruleSpots() {
+    const out = [];
+    for (const o of this.objects) {
+      if (o.taken) continue;
+      if (o.where === 'wall') { const [dx, dy] = DIRS[o.face]; out.push({ key: o.key, x: o.x + dx, y: o.y + dy, o }); }
+      else out.push({ key: o.key, x: o.x, y: o.y, o });
+    }
+    for (const it of this.items) if (!it.taken) out.push({ key: ITEM_NAME[it.kind], x: it.x, y: it.y });
+    return out;
+  }
+
   ruleState() {
-    const live = this.objects.filter((o) => !o.taken && o.where !== 'wall');
-    const here = new Set(live.filter((o) => o.x === this.cx && o.y === this.cy).map((o) => o.key));
-    const near = new Set(live.filter((o) => Math.abs(o.x - this.cx) + Math.abs(o.y - this.cy) <= 1).map((o) => o.key));
+    const spots = this.ruleSpots();
+    const here = new Set(spots.filter((p) => p.x === this.cx && p.y === this.cy).map((p) => p.key));
+    const near = new Set(spots.filter((p) => Math.abs(p.x - this.cx) + Math.abs(p.y - this.cy) <= 1).map((p) => p.key));
     return { turn: this.turn, here, near, seeMonster: !!this.monsterInSight(), hp: this.hp, atDoor: this.atExit() };
   }
 
@@ -558,9 +570,13 @@ export class Game {
   reachKeys() {
     const a = this.ahead();
     const face = (this.facing + 2) % 4;
-    return new Set(this.objects.filter((o) => !o.taken && (
+    const keys = new Set(this.objects.filter((o) => !o.taken && (
       (o.where !== 'wall' && ((o.x === this.cx && o.y === this.cy) || (o.x === a.x && o.y === a.y)))
       || (o.where === 'wall' && o.x === a.x && o.y === a.y && o.face === face))).map((o) => o.key));
+    for (const it of this.items) {
+      if (!it.taken && ((it.x === this.cx && it.y === this.cy) || (it.x === a.x && it.y === a.y))) keys.add(ITEM_NAME[it.kind]);
+    }
+    return keys;
   }
 
   runRules() {
@@ -577,7 +593,10 @@ export class Game {
       switch (a.act) {
         case 'say': this.log(a.text, 'sys'); break;
         case 'hp':
-          if (a.amount > 0) { this.hp = Math.min(this.maxHp, this.hp + a.amount); this.log('몸이 조금 나아졌다.'); }
+          if (a.amount > 0) {
+            this.log(this.hp >= this.maxHp ? '몸은 이미 멀쩡하다.' : '몸이 조금 나아졌다.');
+            this.hp = Math.min(this.maxHp, this.hp + a.amount);
+          }
           else this.damage(this.s.noPain ? 0 : -a.amount, '어딘가가 욱신거린다.');
           break;
         case 'lose_part': this.losePart(a.effect); break;
@@ -601,7 +620,8 @@ export class Game {
       }
     }
     this.decalFrame = 0;
-    if (!this.dead) this.describe();
+    // 주변이 바뀌었을 때만 다시 둘러본다 (문장만 나온 규칙에 서술이 겹치지 않게)
+    if (!this.dead && acts.some((a) => ['teleport', 'object', 'monster'].includes(a.act))) this.describe();
   }
 
   teleport(to) {
@@ -629,11 +649,12 @@ export class Game {
       for (let y = 0; y < this.size; y++) for (let x = 0; x < this.size; x++) {
         if (!this.wall(x, y) && !this.monsterAt(x, y) && Math.abs(x - this.cx) + Math.abs(y - this.cy) >= 4) far.push({ x, y });
       }
-      for (let k = 0; k < a.count && far.length; k++) {
+      let made = 0;
+      for (let k = 0; k < a.count && far.length; k++, made++) {
         const c = far.splice(Math.floor(Math.random() * far.length), 1)[0];
         this.monsters.push({ id: `rm${this.monsters.length}`, x: c.x, y: c.y, alive: true, stun: 0 });
       }
-      this.log('어딘가에서 무언가 늘어났다.', 'bad');
+      if (made) this.log('어딘가에서 무언가 늘어났다.', 'bad');
     } else if (a.do === 'flee') { for (const m of live) this.fleeMonster(m); this.log('기척들이 멀어진다.'); }
     else if (a.do === 'stun') { for (const m of live) m.stun = 2; this.log('모든 소리가 멎었다.'); }
     else { for (const m of live) m.stun = -1; this.log('어둠 속이 술렁인다.', 'bad'); }
@@ -648,16 +669,16 @@ export class Game {
     else { this.ammo += a.count; this.log(`탄약이 ${a.count}발 늘었다.`); }
   }
 
+  /** 규칙의 대상 중 가장 가까운 하나에게만 일어난다. */
   ruleObject(how, target) {
-    for (const o of this.objects.filter((x) => !x.taken && x.key === target)) {
-      if (how === 'vanish') o.taken = true;
-      else if (o.where === 'wall') continue;
-      else if (how === 'follow' || how === 'wander') { o.moves = how; o.pose = 'stand'; }
-      else if (how === 'come') {
-        const spot = DIRS.map(([dx, dy]) => ({ x: this.cx + dx, y: this.cy + dy })).find((c) => !this.wall(c.x, c.y) && !this.monsterAt(c.x, c.y));
-        if (spot) { o.x = spot.x; o.y = spot.y; }
-      }
-    }
+    const dist = (x) => Math.abs(x.x - this.cx) + Math.abs(x.y - this.cy);
+    const o = this.objects.filter((x) => !x.taken && x.key === target).sort((p, q) => dist(p) - dist(q))[0];
+    if (!o) return;
+    if (how === 'vanish') { o.taken = true; return; }
+    if (o.where === 'wall') return;                       // 벽에 걸린 것은 움직이지 않는다
+    if (how === 'follow' || how === 'wander') { o.moves = how; o.pose = 'stand'; return; }
+    const spot = DIRS.map(([dx, dy]) => ({ x: this.cx + dx, y: this.cy + dy })).find((c) => !this.wall(c.x, c.y) && !this.monsterAt(c.x, c.y));
+    if (spot) { o.x = spot.x; o.y = spot.y; }            // come
   }
 
   encounterCtx() {
@@ -1004,6 +1025,7 @@ export class Game {
       const x = 1 + Math.floor(Math.random() * (this.size - 2));
       const y = 1 + Math.floor(Math.random() * (this.size - 2));
       if ((x === this.cx && y === this.cy) || (this.w.exit && x === this.w.exit.x && y === this.w.exit.y)) continue;
+      if (this.pinned(x, y)) continue;
       this.grid[y][x] = this.grid[y][x] === 1 ? 0 : 1;
     }
     if (this.w.exit && !this.reachable(this.cx, this.cy, this.w.exit.x, this.w.exit.y)) {
@@ -1011,6 +1033,16 @@ export class Game {
       return;
     }
     this.log('벽이 움직이는 소리가 난다.', 'sys');
+  }
+
+  /** 움직이는 미로가 건드리면 안 되는 칸. 물건이 놓인 바닥, 무언가 걸린 벽. */
+  pinned(x, y) {
+    const at = (o) => o.x === x && o.y === y;
+    return this.objects.some((o) => !o.taken && at(o))
+      || this.items.some((it) => !it.taken && at(it))
+      || this.corpses.some((c) => !c.taken && at(c))
+      || this.traps.some((t) => !t.sprung && at(t))
+      || this.monsters.some((m) => m.alive && at(m));
   }
 
   reachable(sx, sy, tx, ty) {
@@ -1207,7 +1239,8 @@ export class Game {
   collectSprites() {
     const out = [];
     for (const m of this.monsters) {
-      if (m.alive) out.push({ kind: 'monster', ref: this.w.monsterLook ? { ...this.w.monsterLook, id: 'monster' } : null, x: m.x + 0.5, y: m.y + 0.5, h: 1.05, w: 0.75 });
+      const look = this.w.monsterLook && (this.w.monsterLook.img || this.w.monsterLook.emoji !== '❔') ? this.w.monsterLook : null;
+      if (m.alive) out.push({ kind: 'monster', ref: look ? { ...look, id: 'monster' } : null, x: m.x + 0.5, y: m.y + 0.5, h: 1.05, w: 0.75 });
     }
     for (const c of this.corpses) {
       if (!c.taken) out.push({ kind: 'corpse', x: c.x + 0.5, y: c.y + 0.5, h: 0.3, w: 0.85, ground: true });
