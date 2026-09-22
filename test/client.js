@@ -2,7 +2,7 @@
 import { nextStep, wanderStep } from '../public/paths.js';
 import { RuleEngine } from '../public/rules.js';
 import { faceOf, raySegment, wallU } from '../public/geometry.js';
-import { TEX, noise, procedural, tintGrime, hexToRgb, wallpaper } from '../public/textures.js';
+import { TEX, noise, procedural, tintGrime, hexToRgb, wallpaper, lightTile } from '../public/textures.js';
 import { COMBAT, SPECIAL, EVENTS, resolve, available, pickSpecial, attackChance, dodgeChance, monsterSteps, turnCost, rollAttack } from '../public/encounters.js';
 import { PARTS, BODY_PARTS, pickPart, effectsOf, severityOf, sanitizeParts } from '../public/body.js';
 
@@ -143,6 +143,14 @@ check(eng.update(S({ here: new Set(['시체']) }))[0]?.target === '시체', '자
 
 eng = new RuleEngine([{ on: 'act', target: '거울', verb: '본다', chance: 0.5, once: true, do: say('b') }], () => 0.9);
 check(eng.act(0).length === 0 && eng.buttons(new Set(['거울'])).length === 1, 'once 는 실제로 일어났을 때만 소모된다');
+
+// ── 형광등 ──────────────────────────────────────────────
+const lights = [];
+for (let y = 0; y < 40; y++) for (let x = 0; x < 40; x++) { const t = lightTile(x, y); if (t >= 0) lights.push([x, y, t]); }
+check(lights.length > 1600 * 0.08 && lights.length < 1600 * 0.2, '천장 칸의 대략 14% 에 형광등');
+check(lights.every(([, , t]) => t >= 0 && t <= 3) && new Set(lights.map(([, , t]) => t)).size === 4, '형광등은 칸의 타일 네 장 중 하나');
+check(!lights.every(([x, y]) => (x * 7 + y * 13) % 5 === 0), '사선으로 늘어서지 않는다');
+check(lightTile(5, 9) === lightTile(5, 9), '같은 칸은 언제나 같다');
 
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);

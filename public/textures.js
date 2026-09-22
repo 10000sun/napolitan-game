@@ -96,6 +96,15 @@ export function wallpaper(px) {
   return px;
 }
 
+/**
+ * 이 천장 칸의 형광등이 달린 타일. 칸마다 타일 네 장(0 왼위 1 오위 2 왼아래 3 오아래) 중 하나, 없으면 -1.
+ * 좌표 해시로 정하니 무작위처럼 흩어지되 같은 칸은 언제나 같다.
+ */
+export function lightTile(x, y) {
+  if (hash2(x, y, 4242) >= 0.14) return -1;
+  return Math.floor(hash2(y, x, 777) * 4);
+}
+
 /* ── 브라우저 전용 ─────────────────────────────────── */
 
 const loadImg = (url) => new Promise((ok) => {

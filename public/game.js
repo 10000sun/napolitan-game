@@ -8,7 +8,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import { sprite, drawUncanny, stretchFor, emojiCanvas, decalPixels, filteredCanvas } from '/uncanny.js';
-import { TEX, buildSurfaces } from '/textures.js';
+import { TEX, buildSurfaces, lightTile } from '/textures.js';
 import { faceOf, raySegment, wallU } from '/geometry.js';
 import { RuleEngine } from '/rules.js';
 import { nextStep, wanderStep } from '/paths.js';
@@ -20,7 +20,6 @@ const TAU = Math.PI * 2;
 const FOG = [58, 52, 34];                  // 누런 안개
 const SCALES = [1, 0.75, 0.55];            // 느리면 한 단계씩 내린다
 const ITEM_EMOJI = { pistol: '🔫', knife: '🔪', map: '🗺️' };
-const isLight = (x, y) => ((x * 7 + y * 13) % 5 + 5) % 5 === 0;   // 형광등 칸
 
 const COLORS = {
   wallLight: [88, 86, 79],
@@ -1155,9 +1154,14 @@ export class Game {
           }
           put((y * rw + x) * 4, r, g, b, fog, light);
           if (yc >= 0) {
-            const lit = isLight(cx, cy);
-            const src = lit ? T.light : T.ceil;
-            put((yc * rw + x) * 4, src[ti], src[ti + 1], src[ti + 2], lit ? fog * 0.4 : fog, light);   // 형광등은 안개를 덜 탄다
+            // 형광등은 칸의 타일 한 장에만. 그 타일 안에서 패널 텍스처를 한 장 그대로 편다.
+            const lit = lightTile(cx, cy) === (lu >= 0.5 ? 1 : 0) + (lv >= 0.5 ? 2 : 0);
+            if (lit) {
+              const li = ((((lv * 2 % 1) * TEX) | 0) * TEX + (((lu * 2 % 1) * TEX) | 0)) * 4;
+              put((yc * rw + x) * 4, T.light[li], T.light[li + 1], T.light[li + 2], fog * 0.4, light);   // 안개를 덜 탄다
+            } else {
+              put((yc * rw + x) * 4, T.ceil[ti], T.ceil[ti + 1], T.ceil[ti + 2], fog, light);
+            }
           }
           fx += sx; fy += sy;
         }
