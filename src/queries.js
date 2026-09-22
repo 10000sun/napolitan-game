@@ -6,6 +6,12 @@ export function queries(store) {
     run: (...args) => store.run(sql, args),
   });
   return {
+    // 공책 잠금. 비었거나 만료됐을 때만 내 것이 된다. 한 문장이라 둘이 동시에 가져가지 못한다.
+    // 못 가져가면 RETURNING 이 아무 행도 돌려주지 않는다 → get() 이 null.
+    lockBook: stmt(`INSERT INTO locks (name, holder, until) VALUES ('book', ?, ?)
+      ON CONFLICT(name) DO UPDATE SET holder = excluded.holder, until = excluded.until WHERE locks.until < ?
+      RETURNING holder`),
+    unlockBook: stmt(`DELETE FROM locks WHERE name = 'book' AND holder = ?`),
     // 방명록 초기화. 글이 runs 를 가리키므로 글부터 지운다 (D1 은 외래키를 지킨다).
     resetEntries: stmt(`DELETE FROM entries`),
     resetRuns: stmt(`DELETE FROM runs`),

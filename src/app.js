@@ -14,6 +14,8 @@ import { canEnter, bodyOf, saveBodyOnClear, resetBody, isOpen, hasReadBook, mark
 import { resolveAsset, imgFor, getImage, ITEM_ASSETS } from './assets.js';
 
 const MAX_BODY = 32 * 1024;
+// 판정(LLM) 한 번이 넘지 않을 시간. 이보다 오래 잡혀 있으면 죽은 잠금으로 보고 다음 사람이 가져간다.
+const LOCK_MS = 120_000;
 
 const json = (obj, status = 200, headers = {}) =>
   new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers } });
@@ -92,8 +94,38 @@ async function writeBook(request, user) {
   if (!text) return json({ error: '아무것도 적지 않았습니다.' }, 400);
   if (text.length > 500) return json({ error: '공책의 한 칸에 그만큼은 들어가지 않습니다.' }, 400);
 
+  // 판정은 한 줄씩. 잠금 안에서 규칙을 읽고, 판정하고, 적는다.
+  const holder = crypto.randomUUID();
+  const now = Date.now();
+  if (!(await q.lockBook.get(holder, now + LOCK_MS, now))) {
+    return json({ error: '누군가 공책에 적고 있다. 잉크가 마르면 다시 적자.', busy: true }, 409);
+  }
+  let saved;
+  try {
+    saved = await judgeAndSave(text, user);
+  } finally {
+    await q.unlockBook.run(holder);
+  }
+  if (saved.error) return json({ error: saved.error }, saved.status);
+  const { entry, verdict, next } = saved;
+
+  // 모습은 응답 전에 확보한다. 워커는 응답 뒤의 일을 30초 안에 끊는다.
+  // 규칙과는 상관없어서 잠금 밖에서 한다 (다음 사람을 기다리게 하지 않게).
+  await Promise.all(looksToResolve(verdict.effects, next)
+    .map((o) => resolveAsset(o).catch((err) => console.error('[asset]', err.message))));
+
+  return json({
+    entry: { ...entry, username: user.username },
+    verdict: verdict.verdict,
+    reason: verdict.reason,
+    changed: verdict.effects.length > 0,
+  });
+}
+
+/** 잠금 안에서: 쓸 자격 확인 → 판정 → 저장. 같은 사람이 두 번 눌러도 한 줄만 남는다. */
+async function judgeAndSave(text, user) {
   const run = await q.pendingWrite.get(user.id);
-  if (!run) return json({ error: '출구 쪽 공책은 이곳을 빠져나온 사람에게만 열립니다.' }, 403);
+  if (!run) return { error: '출구 쪽 공책은 이곳을 빠져나온 사람에게만 열립니다.', status: 403 };
 
   const rules = await loadAppliedRules();
   const state = foldEffects(rules.map((r) => r.effects));
@@ -112,18 +144,7 @@ async function writeBook(request, user) {
     JSON.stringify(verdict.effects), Date.now(),
   );
   await q.useRunEntry.run(run.id);
-
-  // 모습은 응답 전에 확보한다. 워커는 응답 뒤의 일을 30초 안에 끊는다.
-  const next = foldEffects([...rules.map((r) => r.effects), verdict.effects]);
-  await Promise.all(looksToResolve(verdict.effects, next)
-    .map((o) => resolveAsset(o).catch((err) => console.error('[asset]', err.message))));
-
-  return json({
-    entry: { ...entry, username: user.username },
-    verdict: verdict.verdict,
-    reason: verdict.reason,
-    changed: verdict.effects.length > 0,
-  });
+  return { entry, verdict, next: foldEffects([...rules.map((r) => r.effects), verdict.effects]) };
 }
 
 // ── 런 ──────────────────────────────────────────────────────

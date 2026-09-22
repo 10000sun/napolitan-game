@@ -7,8 +7,10 @@ process.env.IMAGE_PROVIDER = 'gemini';
 
 let say = null;          // 판정 모델이 뱉을 JSON
 let imageOk = true;      // 이미지 생성이 되는가
+let gate = null;         // 판정 응답을 붙잡아 둘 때 (동시 기입)
 globalThis.fetch = async (url) => {
   if (String(url).includes(':generateContent')) {
+    if (gate) await gate;
     return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(say) }] } }] }), { status: 200 });
   }
   if (!imageOk) return new Response('boom', { status: 500 });
@@ -117,6 +119,38 @@ const afterMe = (await get('/api/me', { cookie: A })).body;
 check(afterBook.body.entries.length === 0 && afterBook.body.pendingWrite === null, '방명록이 비고 쓸 자격도 사라진다');
 check(afterMe.user && JSON.stringify(afterMe.lostParts) === '[]' && !afterMe.readBook && afterMe.canEnter, '사람은 남고 몸·공책 읽음·연속 입장은 처음으로');
 check((await q.assetByKey.get('웃는 가면'))?.status === 'ready', '만든 이미지는 남는다');
+
+// ── 공책은 한 줄씩 ──────────────────────────────────────
+// 두 사람이 동시에 나와서 적으면, 한 사람은 기다렸다가 다시 적어야 한다.
+const clearAs = async (cookie) => {
+  await get('/api/guestbook', { cookie });
+  const id = (await post('/api/run/start', { cookie })).body.runId;
+  await backdate(id);
+  await post(`/api/run/${id}/clear`, { cookie, body: {} });
+};
+await clearAs(A);
+await clearAs(B);
+imageOk = true;
+say = { verdict: 'flavor_only', reason: '받아 적었다', effects: [] };
+let release;
+gate = new Promise((res) => { release = res; });
+const both = Promise.all([
+  post('/api/guestbook', { cookie: A, body: { text: '동시에 하나' } }),
+  post('/api/guestbook', { cookie: B, body: { text: '동시에 둘' } }),
+]);
+await new Promise((res) => setTimeout(res, 20));
+release();
+gate = null;
+const [wa, wb] = await both;
+check([wa.status, wb.status].sort().join() === '200,409', `동시에 적으면 한 줄만 판정되고 나머지는 409 (${wa.status}, ${wb.status})`);
+const loser = wa.status === 409 ? { res: wa, cookie: A } : { res: wb, cookie: B };
+check(loser.res.body.busy === true && /누군가 공책에/.test(loser.res.body.error), '기다리라는 안내');
+check((await get('/api/guestbook', { cookie: loser.cookie })).body.pendingWrite !== null, '밀려난 사람은 쓸 자격을 잃지 않는다');
+check(!!(await q.lockBook.get('probe', Date.now() + 1000, Date.now())), '끝나면 잠금이 풀린다');
+check((await post('/api/guestbook', { cookie: loser.cookie, body: { text: '다시' } })).status === 409, '누가 잡고 있으면 409');
+await store.run('UPDATE locks SET until = 0');
+check((await post('/api/guestbook', { cookie: loser.cookie, body: { text: '다시' } })).status === 200, '만료된 잠금은 다음 사람이 가져간다');
+check((await get('/api/guestbook')).body.entries.length === 2, '결국 두 줄 다 남는다');
 
 // ── 경계 ────────────────────────────────────────────────
 check((await post('/api/guestbook', { body: { text: 'x' } })).status === 401, '로그인 없이 기입 401');
