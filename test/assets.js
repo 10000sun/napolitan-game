@@ -1,16 +1,14 @@
 // 에셋 해석기. 네트워크 없이 가짜 생성기를 끼워서 흐름만 본다.
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'napo-assets-'));
-process.env.DB_PATH = path.join(tmp, 'test.db');
-process.env.ASSET_DIR = path.join(tmp, 'obj');
 process.env.IMAGE_PROVIDER = 'gemini';
 process.env.IMAGE_DAILY_LIMIT = '2';
 
-const { matchTags, resolveAsset, imgFor } = await import('../src/assets.js');
-const { q } = await import('../src/db.js');
+const { matchTags, resolveAsset, imgFor, useImages } = await import('../src/assets.js');
+const { useStore } = await import('../src/db.js');
+const { nodeStore } = await import('../src/store.js');
+useStore(await nodeStore());
+const { q } = await import('../src/db.js'); // useStore 뒤에 꺼내야 연결된 q
+const stored = new Map();
+useImages({ put: async (file, bytes, type) => { stored.set(file, { bytes, type }); }, get: async (file) => stored.get(file) ?? null });
 
 let fail = 0;
 const check = (c, label) => { console.log(`  ${c ? '✓' : '✗'} ${label}`); if (!c) fail++; };
@@ -40,7 +38,7 @@ check(calls.length === 0, '생성기 호출 0회');
 
 r = await resolveAsset(obj('젤리', []), { generators: gens, library: lib });
 check(r.source === 'gemini' && /^\/obj\/[0-9a-f]{16}\.png$/.test(r.file), '매칭이 없으면 gemini 로 생성, 파일명은 해시');
-check(fs.existsSync(path.join(process.env.ASSET_DIR, path.basename(r.file))), '파일이 실제로 저장된다');
+check(stored.get(r.file.slice(5))?.type === 'image/png', '이미지가 저장소에 들어간다 (Content-Type 과 함께)');
 check(calls[0].prompt.startsWith('젤리, ') && calls[0].prompt.includes('uncanny'), '태그가 없으면 이름 + 고정 화풍');
 
 calls.length = 0;
@@ -50,7 +48,7 @@ check(calls.length === 0 && r.source === 'gemini', '같은 key 는 캐시에서'
 r = await resolveAsset(obj('slime', ['slime', 'green']), { generators: gens, library: [] });
 check(r.source === 'gemini', '두 번째 gemini 생성');
 r = await resolveAsset(obj('green slime', ['slime', 'green']), { generators: gens, library: [] });
-check(r.source === 'match' && r.file === q.assetByKey.get('slime').file, '생성한 에셋도 다음 매칭 대상이 된다');
+check(r.source === 'match' && r.file === (await q.assetByKey.get('slime')).file, '생성한 에셋도 다음 매칭 대상이 된다');
 
 calls.length = 0;
 r = await resolveAsset(obj('눈알', ['eyeball']), { generators: gens, library: [] });
@@ -77,7 +75,7 @@ check(calls.length === 1 && a.file === b.file, '같은 key 를 동시에 요청�
 
 process.env.IMAGE_PROVIDER = 'none';
 r = await resolveAsset(obj('안만듦', ['nothing']), { generators: gens, library: [] });
-check(r.status === 'failed' && !q.assetByKey.get('안만듦'), 'IMAGE_PROVIDER=none 이면 실패를 남기지 않는다 (나중에 켜면 다시 시도)');
+check(r.status === 'failed' && !(await q.assetByKey.get('안만듦')), 'IMAGE_PROVIDER=none 이면 실패를 남기지 않는다 (나중에 켜면 다시 시도)');
 process.env.IMAGE_PROVIDER = 'gemini';
 
 // 설정 문제(키 없음·한도로 건너뜀)는 그 물체의 실패가 아니다. 남기지 않아야 나중에 다시 만든다.
@@ -85,15 +83,15 @@ const noKey = (name) => async () => { calls.push({ name }); throw Object.assign(
 r = await resolveAsset(obj('키없음', ['nokey']), {
   generators: { gemini: noKey('gemini'), pollinations: noKey('pollinations') }, library: [], now: Date.now() + 4 * 86_400_000,
 });
-check(r.status === 'failed' && !q.assetByKey.get('키없음'), '키가 없어서 못 만들었으면 실패를 남기지 않는다');
+check(r.status === 'failed' && !(await q.assetByKey.get('키없음')), '키가 없어서 못 만들었으면 실패를 남기지 않는다');
 r = await resolveAsset(obj('한도초과', ['overlimit']), {
   generators: { gemini: gen('gemini'), pollinations: noKey('pollinations') }, library: [],
 });
-check(r.status === 'failed' && !q.assetByKey.get('한도초과'), '한도를 넘긴 날 pollinations 키가 없으면 남기지 않는다 (내일 다시)');
+check(r.status === 'failed' && !(await q.assetByKey.get('한도초과')), '한도를 넘긴 날 pollinations 키가 없으면 남기지 않는다 (내일 다시)');
 r = await resolveAsset(obj('반반', ['half']), {
   generators: { gemini: gen('gemini', false), pollinations: noKey('pollinations') }, library: [], now: Date.now() + 5 * 86_400_000,
 });
-check(r.status === 'failed' && q.assetByKey.get('반반')?.status === 'failed', '실제로 호출해서 실패했으면 남긴다');
+check(r.status === 'failed' && (await q.assetByKey.get('반반'))?.status === 'failed', '실제로 호출해서 실패했으면 남긴다');
 
 // ── 텍스처는 텍스처끼리만 ────────────────────────────────
 calls.length = 0;
@@ -101,14 +99,11 @@ r = await resolveAsset({ key: 'tex:wall:점액', name: '점액', tags: ['slime',
 check(r.source === 'gemini' && r.kind === 'texture', '같은 태그의 물체 에셋이 있어도 텍스처는 따로 만든다');
 check(calls[0]?.prompt.includes('seamless tileable texture'), '텍스처 프롬프트');
 r = await resolveAsset(obj('초록 점액 덩어리', ['slime', 'green']), { generators: gens, library: [], now: Date.now() + 6 * 86_400_000 });
-check(r.source === 'match' && r.file === q.assetByKey.get('slime').file, '물체는 물체끼리 매칭된다');
+check(r.source === 'match' && r.file === (await q.assetByKey.get('slime')).file, '물체는 물체끼리 매칭된다');
 
 // ── imgFor ──────────────────────────────────────────────
-check(imgFor('웃는 가면') === '/lib/mask.png', 'ready 면 URL');
-check(imgFor('손') === null && imgFor('없는것') === null, 'failed·없음이면 null');
-const jelly = q.assetByKey.get('젤리').file;
-fs.rmSync(path.join(process.env.ASSET_DIR, path.basename(jelly)));
-check(imgFor('젤리') === null, '파일이 지워졌으면 null');
+check((await imgFor('웃는 가면')) === '/lib/mask.png', 'ready 면 URL');
+check((await imgFor('손')) === null && (await imgFor('없는것')) === null, 'failed·없음이면 null');
 
 // ── 생성기 어댑터 (fetch 가로채기) ───────────────────────
 const { GENERATORS, toImage } = await import('../src/assets.js');

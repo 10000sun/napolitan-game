@@ -9,15 +9,13 @@
 // ─────────────────────────────────────────────────────────────
 
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { q } from './db.js';
+import library from '../assets/library.json' with { type: 'json' };
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const LIBRARY_DIR = path.join(ROOT, 'assets', 'library');
-const LIBRARY_JSON = path.join(ROOT, 'assets', 'library.json');
-export const assetDir = () => process.env.ASSET_DIR || path.join(ROOT, 'data', 'assets');
+/** 만든 이미지를 두는 곳. 운영은 KV(worker.js), 테스트는 메모리. */
+let images = null;
+export function useImages(store) { images = store; }
+export const getImage = (file) => images.get(file);
 
 const MATCH_MIN = 0.5;
 export const STYLE = 'single object, centered, isolated on plain pure black background, uncanny, '
@@ -104,26 +102,19 @@ export function matchTags(tags, candidates) {
   return best;
 }
 
-export function loadLibrary() {
-  try {
-    return JSON.parse(fs.readFileSync(LIBRARY_JSON, 'utf8'))
-      .map((e) => ({ tags: e.tags, file: `/lib/${e.file}` }));
-  } catch {
-    return [];
-  }
-}
+export const loadLibrary = () => library.map((e) => ({ tags: e.tags, file: `/lib/${e.file}`, kind: e.kind }));
 
 const hashKey = (key) => crypto.createHash('sha1').update(key).digest('hex').slice(0, 16);
 
 /** 오늘 무엇으로 만들지. Gemini 가 한도를 넘었으면 Pollinations 만. */
-function generatorOrder(now) {
+async function generatorOrder(now) {
   const provider = (process.env.IMAGE_PROVIDER || 'gemini').toLowerCase();
   if (provider === 'none') return [];
   if (provider === 'pollinations') return ['pollinations'];
   const limit = Number(process.env.IMAGE_DAILY_LIMIT ?? 5);
   const midnight = new Date(now);
   midnight.setHours(0, 0, 0, 0);
-  const used = q.generatedSince.get('gemini', midnight.getTime()).n;
+  const used = (await q.generatedSince.get('gemini', midnight.getTime())).n;
   return used < limit ? ['gemini', 'pollinations'] : ['pollinations'];
 }
 
@@ -137,22 +128,22 @@ export function resolveAsset(obj, opts = {}) {
   return p;
 }
 
-async function doResolve(obj, { generators = GENERATORS, library = loadLibrary(), now = Date.now(), dir = assetDir() } = {}) {
+async function doResolve(obj, { generators = GENERATORS, library = loadLibrary(), now = Date.now() } = {}) {
   const kind = obj.kind || 'object';
-  const hit = q.assetByKey.get(obj.key);
+  const hit = await q.assetByKey.get(obj.key);
   if (hit) return hit;
 
-  const save = (source, file, status) => {
-    q.insertAsset.run(obj.key, obj.tags.join(','), source, file, status, now, kind);
+  const save = async (source, file, status) => {
+    await q.insertAsset.run(obj.key, obj.tags.join(','), source, file, status, now, kind);
     return q.assetByKey.get(obj.key);
   };
 
   const pool = [...library.filter((l) => (l.kind || 'object') === kind),
-    ...q.readyAssets.all(kind).map((r) => ({ tags: r.tags.split(','), file: r.file }))];
+    ...(await q.readyAssets.all(kind)).map((r) => ({ tags: r.tags.split(','), file: r.file }))];
   const m = matchTags(obj.tags, pool);
   if (m.score >= MATCH_MIN) return save('match', m.entry.file, 'ready');
 
-  const order = generatorOrder(now);
+  const order = await generatorOrder(now);
   const prompt = `${(obj.tags.length ? obj.tags : [obj.name]).join(', ')}, ${kind === 'texture' ? TEXTURE_STYLE : STYLE}`;
   let tried = false;
   for (const name of order) {
@@ -160,8 +151,7 @@ async function doResolve(obj, { generators = GENERATORS, library = loadLibrary()
       if (!generators[name]) throw notConfigured('생성기가 없습니다');
       const img = await generators[name](prompt);
       const file = `${hashKey(obj.key)}.${img.ext}`;
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(path.join(dir, file), img.data);
+      await images.put(file, img.data, `image/${img.ext === 'jpg' ? 'jpeg' : img.ext}`);
       return save(name, `/obj/${file}`, 'ready');
     } catch (e) {
       if (!e.notConfigured) tried = true;
@@ -175,12 +165,10 @@ async function doResolve(obj, { generators = GENERATORS, library = loadLibrary()
 }
 
 /**
- * 런 시작 때 붙일 URL. 준비 안 됐거나 생성 파일이 사라졌으면 null → 화면에는 대체 표시.
- * 라이브러리 파일은 운영자가 직접 관리하므로 확인하지 않는다 (없으면 클라이언트 onerror 로 떨어진다).
+ * 런 시작 때 붙일 URL. 준비 안 됐으면 null → 화면에는 대체 표시.
+ * 파일은 확인하지 않는다. 못 읽으면 클라이언트 onerror 로 떨어진다.
  */
-export function imgFor(key) {
-  const a = q.assetByKey.get(key);
-  if (a?.status !== 'ready' || !a.file) return null;
-  if (a.file.startsWith('/obj/') && !fs.existsSync(path.join(assetDir(), path.basename(a.file)))) return null;
-  return a.file;
+export async function imgFor(key) {
+  const a = await q.assetByKey.get(key);
+  return a?.status === 'ready' && a.file ? a.file : null;
 }
