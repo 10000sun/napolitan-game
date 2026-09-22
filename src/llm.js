@@ -13,7 +13,9 @@ const PROVIDERS = {
   /* Google AI Studio — 무료 한도가 넉넉하다. aistudio.google.com/apikey */
   gemini: {
     envKey: 'GEMINI_API_KEY',
-    defaultModel: 'gemini-2.0-flash',
+    // 구글은 옛 모델을 꾸준히 내린다. 404 가 나면 그 응답이 후속 모델 이름을
+    // 직접 알려주니, GEMINI_MODEL 에 그 이름을 넣으면 된다.
+    defaultModel: 'gemini-3.6-flash',
     async call({ system, user, key, model }) {
       const base = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com';
       const res = await fetch(`${base}/v1beta/models/${model}:generateContent`, {

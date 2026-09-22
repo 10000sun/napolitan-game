@@ -23,12 +23,12 @@ const ITEM_EMOJI = { pistol: '🔫', knife: '🔪', map: '🗺️' };
 const isLight = (x, y) => ((x * 7 + y * 13) % 5 + 5) % 5 === 0;   // 형광등 칸
 
 const COLORS = {
-  wallLight: [96, 87, 76],
-  wallDark: [62, 56, 49],
-  ceil: [22, 19, 17],
-  floor: [38, 34, 30],
+  wallLight: [88, 86, 79],
+  wallDark: [52, 51, 47],
+  ceil: [15, 15, 14],
+  floor: [38, 37, 33],
   monster: [122, 30, 26],
-  corpse: [78, 70, 58],
+  corpse: [56, 51, 43],
   pistol: [150, 145, 130],
   knife: [170, 170, 175],
   exit: [190, 160, 70],
@@ -151,6 +151,16 @@ export class Game {
     this.zBuf = [];
     this.raf = 0;
     this.lastT = 0;
+    this.sway = 1;                  // 공기 중 먼지를 비추는 빛의 흔들림
+    this.t = 0;
+    // 공기 중에 떠 있는 것들. 화면이 완전히 정지해 보이지 않게 한다.
+    this.dust = Array.from({ length: 46 }, () => ({
+      x: Math.random(), y: Math.random(),
+      r: 0.4 + Math.random() * 1.1,
+      vx: (Math.random() - 0.5) * 0.012,
+      vy: 0.004 + Math.random() * 0.014,
+      a: 0.06 + Math.random() * 0.16,
+    }));
 
     this._onResize = () => this._resize();
     this._onKey = (e) => this._hotkey(e);
@@ -236,14 +246,10 @@ export class Game {
   }
 
   _intro() {
-    if (this.w.ruleCount === 0) {
-      this.log('아무것도 없는 빈 공간이다. 저편에 문 하나가 덩그러니 서 있다.', 'sys');
-    } else {
-      this.log('공책에 적힌 것들이 이미 이곳에 와 있다.', 'sys');
-    }
+    // 방은 자기를 설명하지 않는다. 앞사람이 남긴 것들만 먼저 눈에 들어온다.
     for (const f of (this.s.flavor || []).slice(-3)) this.log(f, 'sys');
-    if (this.mapKnown) this.log('지도를 손에 쥐고 있다. 미로의 구조가 전부 그려져 있다.');
-    if (this.s.noPain) this.log('여기서는 아파지지 않는다. 그게 더 이상하다.', 'sys');
+    // 몸으로 알 수 없는 것만 알려준다. 나머지는 겪어서 알아낸다.
+    if (this.mapKnown) this.log('손에 지도가 들려 있다.');
     if (this.lostBefore.length) this.log(`${this.lostBefore.join(', ')} 없이 들어왔다.`, 'sys');
     this.describe();
     this.runRules();
@@ -251,6 +257,16 @@ export class Game {
 
   /* ── 카메라 ───────────────────────────────────── */
   stepCamera(dt) {
+    this.t += dt;
+    // 어딘가의 불빛이 일정하지 않다
+    this.sway = 0.93 + 0.07 * Math.sin(this.t * 2.3)
+      + 0.035 * Math.sin(this.t * 11.7) + 0.02 * Math.sin(this.t * 29.1);
+    for (const p of this.dust) {
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.y > 1.05) { p.y = -0.05; p.x = Math.random(); }
+      if (p.x < -0.05) p.x = 1.05; else if (p.x > 1.05) p.x = -0.05;
+    }
+
     const tx = this.cx + 0.5, ty = this.cy + 0.5;
     const ta = this.facing * (Math.PI / 2);
     const k = Math.min(1, dt * 9);
@@ -1184,6 +1200,7 @@ export class Game {
 
     this.ctx.putImageData(img, 0, 0);
     this.drawSprites();
+    this.drawDust();
     if (this.darkTurns > 0) { this.ctx.fillStyle = 'rgba(0,0,0,0.92)'; this.ctx.fillRect(0, 0, rw, rh); }
   }
 
@@ -1277,7 +1294,8 @@ export class Game {
       if (runStart >= 0) runs.push([runStart, Math.min(rw - 1, x1)]);
       if (!runs.length) continue;
 
-      const fog = Math.max(0.16, Math.min(1, 5.2 / ty));
+      let fog = Math.max(0.16, Math.min(1, 5.2 / ty));
+      if (s.ground) fog *= 0.66;      // 바닥에 놓인 것은 빛이 잘 닿지 않는다
 
       c.save();
       c.beginPath();
@@ -1339,6 +1357,16 @@ export class Game {
       c.drawImage(src, Math.min(src.width - 1, (hit.s * src.width) | 0), 0, 1, src.height, x, top, 1, bottom - top);
     }
     o.visible = drawn;
+  }
+
+  drawDust() {
+    const c = this.ctx;
+    for (const p of this.dust) {
+      c.fillStyle = `rgba(214, 198, 162, ${p.a * this.sway})`;
+      c.beginPath();
+      c.arc(p.x * this.rw, p.y * this.rh, p.r, 0, TAU);
+      c.fill();
+    }
   }
 
   paintSprite(kind, cx, top, bottom, w, fog, dist, ref) {
@@ -1437,14 +1465,14 @@ export class Game {
 
     if (kind === 'corpse') {
       // 웅크린 채 굳은 덩어리 + 뻗어 나온 팔
-      c.fillStyle = dim([74, 66, 56]);
+      c.fillStyle = dim([46, 42, 36]);
       c.beginPath();
       c.ellipse(cx, bottom - h * 0.35, w * 0.34, h * 0.5, 0, 0, TAU);
       c.fill();
       c.beginPath();
       c.ellipse(cx - w * 0.26, bottom - h * 0.2, w * 0.18, h * 0.34, 0.4, 0, TAU);
       c.fill();
-      c.strokeStyle = dim([88, 78, 66]);
+      c.strokeStyle = dim([58, 52, 44]);
       c.lineWidth = Math.max(1, w * 0.06);
       c.lineCap = 'round';
       c.beginPath();
