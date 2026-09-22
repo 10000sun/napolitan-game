@@ -1451,10 +1451,10 @@ export class Game {
       if (m.alive) out.push({ kind: 'monster', ref: look ? { ...look, id: 'monster' } : null, x: m.x + 0.5, y: m.y + 0.5, h: 1.05, w: 0.75 });
     }
     for (const c of this.corpses) {
-      if (!c.taken) out.push({ kind: 'corpse', x: c.x + 0.5, y: c.y + 0.5, h: 0.3, w: 0.85, ground: true });
+      if (!c.taken) out.push({ kind: 'corpse', x: c.x + 0.5, y: c.y + 0.5, h: 0.42, w: 1.12, ground: true });
     }
     for (const b of this.baits) {
-      out.push({ kind: 'corpse', x: b.x + 0.5, y: b.y + 0.5, h: 0.3, w: 0.85, ground: true });
+      out.push({ kind: 'corpse', x: b.x + 0.5, y: b.y + 0.5, h: 0.42, w: 1.12, ground: true });
     }
     if (!this.tex) {
       // 텍스처가 오기 전에는 벽·바닥 그림을 그릴 수 없으니 예전처럼 세워 둔다.
@@ -1774,21 +1774,76 @@ export class Game {
     }
 
     if (kind === 'corpse') {
-      // 웅크린 채 굳은 덩어리 + 뻗어 나온 팔
-      c.fillStyle = dim([46, 42, 36]);
-      c.beginPath();
-      c.ellipse(cx, bottom - h * 0.35, w * 0.34, h * 0.5, 0, 0, TAU);
-      c.fill();
-      c.beginPath();
-      c.ellipse(cx - w * 0.26, bottom - h * 0.2, w * 0.18, h * 0.34, 0.4, 0, TAU);
-      c.fill();
-      c.strokeStyle = dim([58, 52, 44]);
-      c.lineWidth = Math.max(1, w * 0.06);
+      // 앞서 들어온 사람이다. 상처를 자세히 그리지 않는다 — 매 판 보는 것이라
+      // 수위를 올릴 이유가 없다. 어두운 실루엣과 바닥에 번진 자국으로만 읽힌다.
+      // 색은 불투명하게 쓰고 거리감은 밝기로 준다. 반투명하면 바닥이 비쳐 덩어리가 된다.
+      const tone = (r, g2, b2) => `rgb(${(r * fog) | 0}, ${(g2 * fog) | 0}, ${(b2 * fog) | 0})`;
+      const SKIN = tone(64, 56, 48);
+      const DARK = tone(28, 24, 20);
+      const CLOTH = tone(46, 44, 38);
+
+      const baseY = bottom - h * 0.08;   // 몸이 바닥에 닿는 선
+
+      // 몸 아래로 번진 자국. 끔찍한 건 상처가 아니라 이쪽이다 — 상처를 그리는
+      // 대신 바닥에 번지게 두면, 매 판 보아도 견딜 만하면서 충분히 불편하다.
+      const pool = (ox, oy, rx, ry, a) => {
+        const g = c.createRadialGradient(cx + ox, baseY + oy, 1, cx + ox, baseY + oy, rx);
+        g.addColorStop(0, `rgba(74, 15, 11, ${a * fog})`);
+        g.addColorStop(0.6, `rgba(54, 13, 10, ${a * 0.55 * fog})`);
+        g.addColorStop(1, 'rgba(44, 12, 9, 0)');
+        c.fillStyle = g;
+        c.beginPath();
+        c.ellipse(cx + ox, baseY + oy, rx, ry, 0, 0, TAU);
+        c.fill();
+      };
+      pool(-w * 0.02, h * 0.01, w * 0.4, h * 0.2, 0.8);             // 몸 아래 고인 것
+      pool(-w * 0.26, h * 0.03, w * 0.15, h * 0.09, 0.55);          // 머리 쪽으로 흘러간 줄기
+      pool(w * 0.22, h * 0.03, w * 0.13, h * 0.06, 0.4);
+
       c.lineCap = 'round';
+      c.lineJoin = 'round';
+
+      // 다리 둘. 오른쪽으로 뻗어 있고 하나는 무릎이 접혔다.
+      c.strokeStyle = DARK;
+      c.lineWidth = Math.max(1.4, h * 0.17);
       c.beginPath();
-      c.moveTo(cx + w * 0.1, bottom - h * 0.3);
-      c.lineTo(cx + w * 0.46, bottom - h * 0.06);
+      c.moveTo(cx + w * 0.06, baseY - h * 0.16);
+      c.lineTo(cx + w * 0.34, baseY - h * 0.06);
       c.stroke();
+      c.beginPath();
+      c.moveTo(cx + w * 0.06, baseY - h * 0.2);
+      c.quadraticCurveTo(cx + w * 0.24, baseY - h * 0.42, cx + w * 0.32, baseY - h * 0.22);
+      c.stroke();
+
+      // 엎드린 몸통
+      c.fillStyle = CLOTH;
+      c.beginPath();
+      c.ellipse(cx - w * 0.04, baseY - h * 0.26, w * 0.2, h * 0.24, -0.08, 0, TAU);
+      c.fill();
+      // 등에 진 그늘
+      c.fillStyle = DARK;
+      c.beginPath();
+      c.ellipse(cx - w * 0.02, baseY - h * 0.2, w * 0.165, h * 0.14, -0.08, 0, TAU);
+      c.fill();
+
+      // 돌아간 머리. 얼굴은 바닥을 향해 있어 보이지 않는다.
+      c.fillStyle = SKIN;
+      c.beginPath();
+      c.ellipse(cx - w * 0.25, baseY - h * 0.24, w * 0.075, h * 0.17, 0.2, 0, TAU);
+      c.fill();
+      c.fillStyle = DARK;                                   // 헝클어진 머리카락
+      c.beginPath();
+      c.ellipse(cx - w * 0.28, baseY - h * 0.3, w * 0.066, h * 0.13, 0.2, 0, TAU);
+      c.fill();
+
+      // 이쪽으로 뻗은 팔 하나
+      c.strokeStyle = SKIN;
+      c.lineWidth = Math.max(1.1, h * 0.1);
+      c.beginPath();
+      c.moveTo(cx - w * 0.14, baseY - h * 0.28);
+      c.quadraticCurveTo(cx - w * 0.23, baseY - h * 0.1, cx - w * 0.36, baseY - h * 0.04);
+      c.stroke();
+
       return;
     }
 
