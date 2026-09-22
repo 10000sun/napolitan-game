@@ -5,7 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { q, loadAppliedRules } from './db.js';
-import { currentUser, requireUser, setSession, authUrl, exchangeCode } from './auth.js';
+import { currentUser, requireUser, setSession } from './auth.js';
+import { verifyLink } from './link.js';
 import { buildWorld, deathCell } from './world.js';
 import { compileEntry, offlineFallback } from './compiler.js';
 import { isConfigured, describeProvider } from './llm.js';
@@ -23,17 +24,19 @@ app.use('/lib', express.static(LIBRARY_DIR));
 app.use('/tex', express.static(path.join(__dirname, '..', 'assets', 'textures')));
 
 // ── 인증 ────────────────────────────────────────────────────
-app.get('/auth/login', (_req, res) => res.redirect(authUrl()));
-
-app.get('/auth/callback', async (req, res) => {
-  try {
-    const user = await exchangeCode(req.query.code);
-    if (!user) return res.status(403).send('이 문은 그 서버의 사람에게만 열립니다.');
-    setSession(res, user);
-    res.redirect('/');
-  } catch (e) {
-    res.status(500).send(e.message);
+// 디스코드에서 마리가 준 링크로만 들어온다. 서버 멤버만 마리 명령을 쓸 수 있으니 그게 곧 문지기다.
+app.get('/enter', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.set('Referrer-Policy', 'no-referrer');     // 표가 붙은 주소가 어디에도 새지 않게
+  const who = verifyLink(String(req.query.u || ''), process.env.MARI_LINK_SECRET);
+  if (!who) {
+    return res.status(403).type('html').send(
+      '<!doctype html><meta charset="utf-8"><title>문이 열리지 않는다</title>'
+      + '<body style="background:#0b0a08;color:#d8cfb8;font-family:serif;display:grid;place-items:center;height:100vh;margin:0">'
+      + '<p>링크가 낡았거나 잘못됐다. 디스코드에서 다시 받아 오자.</p></body>');
   }
+  setSession(res, q.upsertUser.get(who.id, who.name, null, Date.now()));
+  res.redirect('/');                              // 주소창에서 표를 지운다
 });
 
 app.post('/auth/logout', (_req, res) => { res.clearCookie('nps'); res.json({ ok: true }); });

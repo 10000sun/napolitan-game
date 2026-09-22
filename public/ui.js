@@ -32,7 +32,7 @@ async function loadLobby() {
 
   // 이 방은 자기에 대해 아무것도 알려주지 않는다.
   // 들어오지 못한 사람에게만 들어올 방법을 알려준다.
-  $('auth-box').innerHTML = me ? '' : '<a href="/auth/login">디스코드로 로그인</a>';
+  $('auth-box').textContent = me ? '' : '디스코드에서 /미니게임 목록 으로 받은 링크로 들어오자.';
   $('btn-enter').disabled = !me || !canEnter || !readBook;
   const notes = [];
   if (me && !readBook) notes.push('공책을 먼저 읽어야 문이 열린다.');

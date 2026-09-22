@@ -1,9 +1,8 @@
-// 디스코드 OAuth2. 지정한 서버(길드)의 멤버만 입장시킨다.
+// 세션 쿠키. 입장은 마리 링크(src/link.js)로만 한다.
 import crypto from 'node:crypto';
 import { q } from './db.js';
 
 const SECRET = () => process.env.SESSION_SECRET || 'dev-secret';
-const API = 'https://discord.com/api/v10';
 
 function sign(payload) {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
@@ -41,39 +40,4 @@ export function requireUser(req, res, next) {
   if (!u) return res.status(401).json({ error: '문 밖에 서 있습니다. 로그인이 필요합니다.' });
   req.user = u;
   next();
-}
-
-export function authUrl() {
-  const p = new URLSearchParams({
-    client_id: process.env.DISCORD_CLIENT_ID || '',
-    redirect_uri: `${process.env.BASE_URL}/auth/callback`,
-    response_type: 'code',
-    scope: 'identify guilds',
-  });
-  return `https://discord.com/oauth2/authorize?${p}`;
-}
-
-/** code → 유저. 길드 멤버가 아니면 null. */
-export async function exchangeCode(code) {
-  const tokenRes = await fetch(`${API}/oauth2/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: process.env.DISCORD_CLIENT_ID,
-      client_secret: process.env.DISCORD_CLIENT_SECRET,
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: `${process.env.BASE_URL}/auth/callback`,
-    }),
-  });
-  if (!tokenRes.ok) throw new Error('디스코드 인증에 실패했습니다.');
-  const { access_token } = await tokenRes.json();
-  const h = { Authorization: `Bearer ${access_token}` };
-
-  const guilds = await (await fetch(`${API}/users/@me/guilds`, { headers: h })).json();
-  const gid = process.env.DISCORD_GUILD_ID;
-  if (gid && !(Array.isArray(guilds) && guilds.some((g) => g.id === gid))) return null;
-
-  const me = await (await fetch(`${API}/users/@me`, { headers: h })).json();
-  return q.upsertUser.get(me.id, me.global_name || me.username, me.avatar, Date.now());
 }

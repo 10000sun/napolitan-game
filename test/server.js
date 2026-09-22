@@ -8,6 +8,7 @@ process.env.DB_PATH = path.join(tmp, 'test.db');
 delete process.env.DEV_NO_AUTH;
 
 const { q } = await import('../src/db.js');
+const { verifyLink } = await import('../src/link.js');
 const { canEnter, bodyOf, saveBodyOnClear, resetBody, isOpen, hasReadBook, markBookRead } = await import('../src/runs.js');
 
 let fail = 0;
@@ -45,6 +46,19 @@ markBookRead(c);
 check(hasReadBook(c) && !hasReadBook(a), '공책을 열면 그 사람만 읽은 것으로 남는다');
 q.upsertUser.get('c', 'C2', null, Date.now());
 check(hasReadBook(c), '다시 로그인해도 읽은 기록은 남는다');
+
+// ── 마리 링크 ────────────────────────────────────────────
+// 마리의 make_token() 과 똑같은 계산으로 파이썬에서 만든 기준값. 한쪽만 바뀌면 여기서 깨진다.
+const GOLDEN = 'eyJpZCI6IjEyMzQ1Njc4OTAxMjM0NTY3OCIsIm4iOiLrp4jrpqwg7YWM7Iqk7Yq4IiwiZSI6MjAwMDAwMDAwMH0.Nd31-9GN_dViZPQbr3_gLJIDZUXbRp5hunFdtquovgg';
+const SEC = 'test-link-secret';
+const ok = verifyLink(GOLDEN, SEC, 1999999999);
+check(ok?.id === '123456789012345678' && ok.name === '마리 테스트', '마리가 만든 링크를 읽는다 (파이썬 기준값)');
+check(verifyLink(GOLDEN, SEC, 2000000000) === null, '만료되면 거절');
+check(verifyLink(GOLDEN, 'other-secret', 1) === null, '다른 비밀값이면 거절');
+const [gb, gm] = GOLDEN.split('.');
+check(verifyLink(`${gb}x.${gm}`, SEC, 1) === null && verifyLink(`${gb}.${gm.slice(0, -1)}A`, SEC, 1) === null, '변조되면 거절');
+for (const bad of ['', 'abc', '.', 'a.b.c', null, undefined, 123]) check(verifyLink(bad, SEC, 1) === null, `이상한 모양은 거절 ${JSON.stringify(bad)}`);
+check(verifyLink(GOLDEN, '', 1) === null, '비밀값이 없으면 아무 링크도 받지 않는다');
 
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);

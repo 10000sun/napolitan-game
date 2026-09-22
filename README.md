@@ -85,9 +85,8 @@ npm start               # http://localhost:3000
 |---|---|
 | `LLM_PROVIDER` | `gemini` / `openai` / `anthropic`. 비워 두면 채워진 키를 보고 고른다 |
 | (제공자별 키) | 아래 표 참고. 없으면 글은 적히지만 세계가 바뀌지 않는다 |
-| `DISCORD_CLIENT_ID` / `_SECRET` | [디스코드 개발자 포털](https://discord.com/developers/applications) > OAuth2 |
-| `DISCORD_GUILD_ID` | 이 서버의 멤버만 입장시킨다. 비우면 로그인한 아무나 들어온다 |
-| `BASE_URL` | 배포 주소. OAuth2 Redirect 에 `{BASE_URL}/auth/callback` 을 등록할 것 |
+| `MARI_LINK_SECRET` | 마리가 링크에 붙이는 표의 열쇠. 마리 `.env` 와 같은 값. 비우면 아무도 못 들어온다 |
+| `BASE_URL` | 배포 주소. 마리가 주는 링크는 `{BASE_URL}/enter?u=<표>` |
 | `SESSION_SECRET` | 세션 쿠키 서명용 랜덤 문자열 |
 
 ### 판정을 어디에 맡길지
@@ -215,7 +214,8 @@ src/
   world.js     규칙 목록 → 결정론적 미로. 시드는 규칙 id 에서만 나온다
   db.js        SQLite. entries 는 append-only
   assets.js    방명록 물체의 모습. 캐시 → 태그 매칭 → 이미지 생성
-  auth.js      디스코드 OAuth2 + 길드 멤버십 확인
+  auth.js      세션 쿠키
+  link.js      마리 링크(표) 검증. 디스코드에서 받은 링크로만 들어온다
   server.js    HTTP
 public/
   game.js      1인칭 레이캐스팅 엔진 (의존성 없음)
