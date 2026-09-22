@@ -10,7 +10,7 @@ import { buildWorld, deathCell } from './world.js';
 import { compileEntry, offlineFallback } from './compiler.js';
 import { isConfigured, describeProvider } from './llm.js';
 import { foldEffects, normalizeObject, normalizeSurface } from './effects.js';
-import { canEnter, bodyOf, saveBodyOnClear, resetBody, isOpen } from './runs.js';
+import { canEnter, bodyOf, saveBodyOnClear, resetBody, isOpen, hasReadBook, markBookRead } from './runs.js';
 import { resolveAsset, imgFor, ITEM_ASSETS, assetDir, LIBRARY_DIR } from './assets.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -44,6 +44,7 @@ app.get('/api/me', (req, res) => {
     user: u ? { id: u.id, username: u.username, avatar: u.avatar, discord_id: u.discord_id } : null,
     devMode: process.env.DEV_NO_AUTH === '1',
     canEnter: u ? canEnter(u.id) : false,
+    readBook: u ? hasReadBook(u.id) : false,
     lostParts: u ? bodyOf(u.id) : [],
   });
 });
@@ -51,6 +52,7 @@ app.get('/api/me', (req, res) => {
 // ── 방명록 ──────────────────────────────────────────────────
 app.get('/api/guestbook', (req, res) => {
   const u = currentUser(req);
+  if (u) markBookRead(u.id);
   // 글과 기입 권한 외에는 아무것도 내보내지 않는다. 몇 줄이 반영됐는지,
   // 몇 명이 살아 나왔는지 알 수 있으면 이 방은 더 이상 무섭지 않다.
   res.json({
@@ -113,6 +115,7 @@ app.post('/api/guestbook', requireUser, async (req, res) => {
 
 // ── 런 ──────────────────────────────────────────────────────
 app.post('/api/run/start', requireUser, (req, res) => {
+  if (!hasReadBook(req.user.id)) return res.status(409).json({ error: '공책을 먼저 읽어야 문이 열린다.' });
   if (!canEnter(req.user.id)) return res.status(409).json({ error: '문이 열리지 않는다. 다른 누군가가 먼저 들어가야 한다.' });
   const rules = loadAppliedRules();
   const world = buildWorld(rules, q.recentDeaths.all());

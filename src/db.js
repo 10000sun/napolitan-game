@@ -63,6 +63,8 @@ if (!assetCols.includes('kind')) db.exec("ALTER TABLE assets ADD COLUMN kind TEX
 // 잃은 부위. 다음에 들어올 때도 그대로다.
 const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
 if (!userCols.includes('lost_parts')) db.exec("ALTER TABLE users ADD COLUMN lost_parts TEXT NOT NULL DEFAULT '[]'");
+// 공책을 한 번이라도 열어 봤는가. 읽지 않고는 들어갈 수 없다.
+if (!userCols.includes('read_book')) db.exec('ALTER TABLE users ADD COLUMN read_book INTEGER NOT NULL DEFAULT 0');
 
 export const q = {
   upsertUser: db.prepare(`
@@ -110,6 +112,8 @@ export const q = {
   lastRun: db.prepare('SELECT user_id FROM runs ORDER BY id DESC LIMIT 1'),
   bodyOf: db.prepare('SELECT lost_parts FROM users WHERE id = ?'),
   setBody: db.prepare('UPDATE users SET lost_parts = ? WHERE id = ?'),
+  readBook: db.prepare('SELECT read_book FROM users WHERE id = ?'),
+  markRead: db.prepare('UPDATE users SET read_book = 1 WHERE id = ?'),
 
   stats: db.prepare(`
     SELECT

@@ -27,14 +27,15 @@ function toast(msg, ms = 2600) {
 
 /* ── 현관 ─────────────────────────────────────────── */
 async function loadLobby() {
-  const { user, canEnter, lostParts } = await api('/api/me');
+  const { user, canEnter, readBook, lostParts } = await api('/api/me');
   me = user;
 
   // 이 방은 자기에 대해 아무것도 알려주지 않는다.
   // 들어오지 못한 사람에게만 들어올 방법을 알려준다.
   $('auth-box').innerHTML = me ? '' : '<a href="/auth/login">디스코드로 로그인</a>';
-  $('btn-enter').disabled = !me || !canEnter;
+  $('btn-enter').disabled = !me || !canEnter || !readBook;
   const notes = [];
+  if (me && !readBook) notes.push('공책을 먼저 읽어야 문이 열린다.');
   if (me && !canEnter) notes.push('문이 열리지 않는다. 다른 누군가가 먼저 들어가야 한다.');
   if (me && lostParts?.length) notes.push(`당신은 ${lostParts.join(', ')} 없이 서 있다.`);
   $('lobby-note').textContent = notes.join(' ');

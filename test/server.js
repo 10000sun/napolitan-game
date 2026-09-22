@@ -8,7 +8,7 @@ process.env.DB_PATH = path.join(tmp, 'test.db');
 delete process.env.DEV_NO_AUTH;
 
 const { q } = await import('../src/db.js');
-const { canEnter, bodyOf, saveBodyOnClear, resetBody, isOpen } = await import('../src/runs.js');
+const { canEnter, bodyOf, saveBodyOnClear, resetBody, isOpen, hasReadBook, markBookRead } = await import('../src/runs.js');
 
 let fail = 0;
 const check = (c, label) => { console.log(`  ${c ? '✓' : '✗'} ${label}`); if (!c) fail++; };
@@ -38,6 +38,13 @@ check(JSON.stringify(bodyOf(b)) === '[]', '죽으면 몸은 초기화된다');
 saveBodyOnClear(a, ['혀'], false);
 check(JSON.stringify(saveBodyOnClear(a, [], false)) === '["혀"]', '빈 몸을 보내도 이미 잃은 부위는 돌아오지 않는다');
 check(isOpen({ cleared_at: null, died_at: null }) && !isOpen({ cleared_at: 1, died_at: null }) && !isOpen({ cleared_at: null, died_at: 1 }), '끝난 판에는 죽음도 클리어도 다시 기록하지 않는다');
+
+const c = q.upsertUser.get('c', 'C', null, Date.now()).id;
+check(!hasReadBook(c), '처음 온 사람은 공책을 읽지 않았다');
+markBookRead(c);
+check(hasReadBook(c) && !hasReadBook(a), '공책을 열면 그 사람만 읽은 것으로 남는다');
+q.upsertUser.get('c', 'C2', null, Date.now());
+check(hasReadBook(c), '다시 로그인해도 읽은 기록은 남는다');
 
 console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
 process.exit(fail ? 1 : 0);

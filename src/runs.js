@@ -21,6 +21,10 @@ export function saveBodyOnClear(userId, parts, healOnExit) {
   return body;
 }
 
+/** 공책을 한 번이라도 열어 봤는가. 앞사람들이 무엇을 적었는지 모르고 들어가게 두지 않는다. */
+export const hasReadBook = (userId) => !!q.readBook.get(userId)?.read_book;
+export const markBookRead = (userId) => { q.markRead.run(userId); };
+
 /** 아직 끝나지 않은 판인가. 끝난 판에 죽음·클리어를 다시 기록하지 않는다. */
 export const isOpen = (run) => !run.cleared_at && !run.died_at;
 
