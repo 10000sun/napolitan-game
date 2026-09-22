@@ -1,10 +1,6 @@
-// 원작 방명록을 그대로 채워 넣는다.
-// API 키 없이 "이미 굴러간 방"을 보고 싶을 때 쓴다.
-//   npm run seed
-// 서버와 같은 DB 를 쓰도록 .env 를 먼저 읽는다.
-import 'dotenv/config';
-import db, { q } from '../src/db.js';
-
+// 원작 방명록을 SQL 로 뽑는다. API 키 없이 "이미 굴러간 방"을 보고 싶을 때 쓴다.
+//   npm run seed          (로컬 D1 에 넣는다)
+// 이미 한 줄이라도 적혀 있으면 아무것도 넣지 않는다.
 const SCRIPT = [
   ['아무 말이나 적고 가면 그냥 나갈 수 있는 거 같아요 신기하네.', 'flavor_only', []],
   ['미로 같기도 하고 재밌네요.', 'applied', [{ type: 'maze.size', value: 15 }]],
@@ -39,16 +35,19 @@ const REASONS = {
   swallowed: '쓰자마자 글자가 종이 속으로 가라앉아 사라졌다.',
 };
 
-const existing = db.prepare('SELECT COUNT(*) AS n FROM entries').get().n;
-if (existing > 0) {
-  console.log(`이미 ${existing}줄이 적혀 있습니다. 비우려면 DB 파일을 지우세요.`);
-  process.exit(0);
-}
-
-const user = q.upsertUser.get('seed-anon', '이름 없음', null, Date.now());
-let t = Date.now() - SCRIPT.length * 36e5;
-for (const [text, verdict, effects] of SCRIPT) {
-  q.insertEntry.run(user.id, null, text, verdict, REASONS[verdict], JSON.stringify(effects), t);
+const sql = (v) => (v === null ? 'NULL' : typeof v === 'number' ? String(v) : `'${String(v).replace(/'/g, "''")}'`);
+const now = Date.now();
+let t = now - SCRIPT.length * 36e5;
+const rows = SCRIPT.map(([text, verdict, effects]) => {
+  const row = [text, verdict, REASONS[verdict], JSON.stringify(effects), t];
   t += 36e5;
-}
-console.log(`${SCRIPT.length}줄을 채웠습니다.`);
+  return `(${row.map(sql).join(', ')})`;
+});
+
+console.log(`INSERT OR IGNORE INTO users (discord_id, username, avatar, created_at) VALUES ('seed-anon', '이름 없음', NULL, ${now});
+INSERT INTO entries (user_id, run_id, raw_text, verdict, reason, effects, created_at)
+  SELECT u.id, NULL, v.column1, v.column2, v.column3, v.column4, v.column5
+  FROM (VALUES
+  ${rows.join(',\n  ')}
+  ) AS v, users u
+  WHERE u.discord_id = 'seed-anon' AND NOT EXISTS (SELECT 1 FROM entries);`);

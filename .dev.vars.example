@@ -1,3 +1,5 @@
+# 로컬 개발(npm run dev)용. .dev.vars 로 복사해서 쓴다. 배포 환경의 비밀값은 wrangler secret put 으로.
+
 # ── 판정을 맡길 AI ─────────────────────────────────────
 # 방명록에 글이 적힐 때만 한 번 호출한다. 하루 수십 줄이면 무료 한도로 충분하다.
 # 아래 셋 중 하나만 채우면 된다. LLM_PROVIDER 를 비워 두면 채워진 키를 보고 고른다.
@@ -33,16 +35,12 @@ IMAGE_DAILY_LIMIT=5
 POLLINATIONS_API_KEY=
 
 # ── 마리 링크 ──────────────────────────────────────────
-# 디스코드에서 마리가 주는 링크로만 들어온다. 마리 .env 의 같은 값과 똑같아야 한다.
+# 디스코드에서 마리가 주는 링크로만 들어온다. 마리 .env 의 MARI_NAPOLITAN_SECRET 과 똑같아야 한다.
 # 미니게임 랭킹용 열쇠(MARI_MINIGAME_SECRET)와는 다른 값을 쓰자. 한쪽이 새도 다른 쪽은 안전하다.
 MARI_LINK_SECRET=
 
 # ── 서버 ───────────────────────────────────────────────
-BASE_URL=http://localhost:3000
 SESSION_SECRET=change-me-to-something-random
-PORT=3000
-DB_PATH=./napolitan.db
 
 # 1 로 두면 마리 링크 없이 아무나 입장 (로컬 테스트용)
-# 윈도우에서는 셸에 환경변수를 넣지 말고 여기를 1 로 바꾸는 게 편하다.
 DEV_NO_AUTH=0

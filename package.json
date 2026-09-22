@@ -4,13 +4,14 @@
   "private": true,
   "type": "module",
   "description": "방명록이 세계를 바꾸는 나폴리탄 괴담 게임",
-  "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
+    "dev": "wrangler dev",
     "test": "node test/store.js && node test/replay.js && node test/compiler.js && node test/assets.js && node test/client.js && node test/server.js && node test/app.js",
-    "seed": "node test/seed.js",
-    "tag-assets": "node scripts/tag-assets.js"
+    "seed": "node test/seed.js > .wrangler/seed.sql && wrangler d1 execute napolitan --local --file=.wrangler/seed.sql",
+    "tag-assets": "node scripts/tag-assets.js",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 migrations apply napolitan --remote",
+    "db:local": "wrangler d1 migrations apply napolitan --local"
   },
   "engines": {
     "node": ">=20"

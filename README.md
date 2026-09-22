@@ -66,28 +66,55 @@ LLM 출력은 **반드시** `sanitize()` 를 통과한다. 모르는 타입은 �
 
 ## 실행
 
-Node.js 20 이상이 필요하다. 없으면 <https://nodejs.org> 에서 LTS 를 설치하고
-**터미널을 새로 연다** (기존 창은 PATH 가 갱신되지 않는다).
+Cloudflare Workers(무료 플랜)에서 돈다. 방명록·기록은 D1, 만든 이미지는 KV,
+화면 파일(`public/`)은 Static Assets. 카드 등록이 필요 없다.
+Node.js 20 이상이 필요하다.
+
+### 내 컴퓨터에서
 
 ```bash
 npm install
-cp .env.example .env    # 윈도우: copy .env.example .env
-npm start               # http://localhost:3000
+npm run db:local    # 로컬 D1 에 표를 만든다 (처음 한 번)
+npm run seed        # 원작 방명록 16줄 (선택)
+npm run dev         # http://localhost:8787
 ```
 
-설정은 전부 `.env` 파일로 읽는다. 셸에 환경변수를 붙이는 방식
-(`DEV_NO_AUTH=1 npm start`) 은 리눅스·macOS 에서만 동작하니,
-운영체제와 무관하게 `.env` 를 고치는 쪽을 쓰는 게 좋다.
+로컬 설정은 `.dev.vars` (git 에 안 올라간다) 에 적는다. `.dev.vars.example` 을 복사해서 시작한다.
 
-`.env` 에 최소한 이것들이 필요하다.
+```
+MARI_LINK_SECRET=test-link-secret
+SESSION_SECRET=local-dev
+DEV_NO_AUTH=1          # 링크 없이 누구나 입장 (로컬에서만)
+GEMINI_API_KEY=...     # 없으면 글은 적히지만 세계가 바뀌지 않는다
+IMAGE_PROVIDER=none    # 로컬에서 이미지 과금을 막는다
+```
+
+### 배포
+
+```bash
+npx wrangler login
+npx wrangler secret put GEMINI_API_KEY
+npx wrangler secret put MARI_LINK_SECRET   # 마리의 MARI_NAPOLITAN_SECRET 과 같은 값
+npx wrangler secret put SESSION_SECRET     # 아무 긴 랜덤 문자열
+npm run db:init     # 원격 D1 에 표를 만든다 (처음 한 번, 스키마가 바뀔 때마다)
+npm run deploy      # https://napolitan.<계정>.workers.dev
+```
+
+비밀이 아닌 설정은 `wrangler.jsonc` 의 `vars` 에 있다.
 
 | 변수 | 설명 |
 |---|---|
 | `LLM_PROVIDER` | `gemini` / `openai` / `anthropic`. 비워 두면 채워진 키를 보고 고른다 |
-| (제공자별 키) | 아래 표 참고. 없으면 글은 적히지만 세계가 바뀌지 않는다 |
-| `MARI_LINK_SECRET` | 마리가 링크에 붙이는 표의 열쇠. 마리 `.env` 와 같은 값. 비우면 아무도 못 들어온다 |
-| `BASE_URL` | 배포 주소. 마리가 주는 링크는 `{BASE_URL}/enter?u=<표>` |
-| `SESSION_SECRET` | 세션 쿠키 서명용 랜덤 문자열 |
+| (제공자별 키) | 아래 표 참고. secret 으로 넣는다 |
+| `MARI_LINK_SECRET` | 마리가 링크에 붙이는 표의 열쇠. 비우면 아무도 못 들어온다 |
+| `SESSION_SECRET` | 세션 쿠키 서명용 |
+| `IMAGE_PROVIDER`, `IMAGE_DAILY_LIMIT` | 아래 "방명록 물체의 모습" |
+
+마리에서 `/미니게임 설정 게임:돌이킬 수 없는 주소:https://napolitan.<계정>.workers.dev`
+하면 `/미니게임 목록` 이 `{주소}/enter?u=<표>` 링크를 준다.
+
+무료 플랜은 요청당 CPU 10ms 다. 월드 생성은 1~2ms 라 여유가 있다
+(LLM·이미지 응답을 기다리는 시간은 CPU 에 들어가지 않는다).
 
 ### 판정을 어디에 맡길지
 
@@ -129,10 +156,10 @@ curl -H "x-goog-api-key: $GEMINI_API_KEY" \
 ### 방명록 물체의 모습
 
 "웃는 가면이 걸려 있었으면" 처럼 물체가 적히면, 판정이 `object.spawn` 으로 옮기고
-서버가 **뒤에서** 그 모습을 확보한다. 기입 응답은 기다리지 않는다.
+서버가 그 모습을 확보한 뒤 응답한다 (워커는 응답 뒤의 일을 30초 안에 끊는다).
 
 1. 같은 물체를 이미 봤으면 그대로 쓴다
-2. `assets/library/` 와 전에 만든 것들 중 태그가 절반 이상 겹치면 그걸 쓴다
+2. `public/lib/` 와 전에 만든 것들 중 태그가 절반 이상 겹치면 그걸 쓴다
 3. 없으면 만든다 — Gemini (하루 `IMAGE_DAILY_LIMIT` 장) → 넘으면 Pollinations
 4. 그래도 안 되면 화면에는 이모지가 대신 선다
 
@@ -147,30 +174,11 @@ curl -H "x-goog-api-key: $GEMINI_API_KEY" \
 
 (2026-09 기준 가격. 바뀔 수 있으니 [Gemini 가격표](https://ai.google.dev/gemini-api/docs/pricing) 를 확인할 것.)
 
-라이브러리에 에셋을 넣으려면 `assets/library/` 에 파일을 넣고 `npm run tag-assets`
-후 `assets/library.json` 의 태그를 다듬는다. 기괴하고 불쾌한 것 위주로 고를 것.
-생성한 이미지는 `data/assets/` 에 쌓인다. 어떤 물체의 모습을 다시 만들고 싶으면
-DB 의 `assets` 테이블에서 그 행을 지우면 다음에 그 물체가 적힐 때 다시 만든다.
-
-### 로그인 없이 돌려보기
-
-`.env` 에서 이 줄만 바꾼다.
-
-```
-DEV_NO_AUTH=1
-```
-
-그러면 디스코드 로그인 없이 누구나 입장한다. 이어서:
-
-```bash
-npm run seed    # 원작 방명록 16줄을 채운다
-npm start
-```
-
-`npm run seed` 는 원작의 진행(미로 → 괴물 → 권총 → 함정 → 지도 → 신체 부위 →
-무적)을 그대로 넣는다. API 키 없이도 "이미 굴러간 방"을 볼 수 있다.
-시드와 서버는 `.env` 의 같은 `DB_PATH` 를 본다. 방명록을 비우려면 그 DB 파일을
-지우고 다시 `npm run seed` 하면 된다.
+라이브러리에 에셋을 넣으려면 `public/lib/` 에 파일을 넣고 `npm run tag-assets`
+후 `assets/library.json` 의 태그를 다듬고 다시 배포한다. 기괴하고 불쾌한 것 위주로 고를 것.
+생성한 이미지는 KV(`IMAGES`)에 쌓인다. 어떤 물체의 모습을 다시 만들고 싶으면
+`npx wrangler d1 execute napolitan --remote --command "DELETE FROM assets WHERE key='그 이름'"`
+하면 다음에 그 물체가 적힐 때 다시 만든다.
 
 ### 테스트
 
@@ -182,6 +190,8 @@ npm test
   방명록이면 같은 미로가 나오는지, 출구까지 길이 있는지 확인한다.
 - `test/compiler.js` — LLM 응답을 가로채서 파싱·검증 경로를 확인한다.
   모르는 Effect 가 걸러지는지, 기각된 글이 세계를 못 바꾸는지 등.
+- `test/app.js` — 워커 없이 요청 처리 전체. 메모리 DB(better-sqlite3)와 메모리
+  이미지로 입장·방명록·런·`/obj` 를 돈다.
 
 ---
 
@@ -212,11 +222,13 @@ src/
   effects.js   Effect DSL 정의·검증·누적. 엔진이 아는 것의 전부
   compiler.js  방명록 글 → 판정 + Effect. 여기서만 LLM 을 부른다
   world.js     규칙 목록 → 결정론적 미로. 시드는 규칙 id 에서만 나온다
-  db.js        SQLite. entries 는 append-only
+  worker.js    워커 입구. D1·KV 를 연결하고 나머지는 정적 파일로
+  app.js       HTTP (Request → Response)
+  db.js        쿼리 묶음(queries.js)을 저장소(store.js: D1 / 테스트용 SQLite)에 연결
+               entries 는 append-only. 스키마는 migrations/
   assets.js    방명록 물체의 모습. 캐시 → 태그 매칭 → 이미지 생성
   auth.js      세션 쿠키
   link.js      마리 링크(표) 검증. 디스코드에서 받은 링크로만 들어온다
-  server.js    HTTP
 public/
   game.js      1인칭 레이캐스팅 엔진 (의존성 없음)
   ui.js        현관 · 방명록 · 게임 화면 연결
@@ -226,8 +238,9 @@ public/
 ## 알아둘 것
 
 - **되돌릴 수 없다.** 반영된 규칙을 취소하는 기능은 일부러 넣지 않았다.
-  원작이 그렇다. 정말 되돌려야 하면 DB 에서 해당 `entries` 행의 `verdict` 를
-  `applied` 가 아닌 값으로 바꾸면 된다.
+  원작이 그렇다. 정말 되돌려야 하면 D1 에서 해당 `entries` 행의 `verdict` 를
+  `applied` 가 아닌 값으로 바꾸면 된다
+  (`npx wrangler d1 execute napolitan --remote --command "UPDATE entries SET verdict='swallowed' WHERE id=…"`).
 - **안티치트는 거의 없다.** 클리어 판정을 클라이언트가 보낸다. 친목 서버용이라
   최소한의 상식 검사(입장 후 2초 이내 클리어 거부)만 둔다.
 - **LLM 호출은 방명록 기입 때만** 일어난다. 하루 50줄이 적혀도 비용은 무시할 수준이다.
