@@ -177,6 +177,22 @@ async function dieRun(request, id, user) {
   return json({ ok: true });
 }
 
+// ── 방명록 초기화 (마리 관리자 명령) ────────────────────────
+// 글·플레이 기록·몸 상태·"공책 읽음" 을 지운다. 사람 목록과 만든 이미지는 남긴다 (이미지는 다시 만들면 돈이 든다).
+// 되돌릴 수 없다. 필요하면 D1 Time Travel 로 복구한다.
+async function resetBook(request) {
+  const { t } = await readJson(request);
+  const who = verifyLink(String(t || ''), process.env.MARI_LINK_SECRET, undefined, 'reset');
+  if (!who) return json({ error: '초기화 표가 아닙니다.' }, 403);
+  // ponytail: 표는 1분 안에 몇 번이든 쓸 수 있다. 초기화는 여러 번 해도 결과가 같아서 막지 않는다.
+  const before = await q.countForReset.get();
+  await q.resetEntries.run();
+  await q.resetRuns.run();
+  await q.resetBodies.run();
+  console.log(`[reset] ${who.name}(${who.id}) 방명록 ${before.entries}줄·기록 ${before.runs}판을 지웠다`);
+  return json({ ok: true, entries: before.entries, runs: before.runs });
+}
+
 // ── 생성된 이미지 ───────────────────────────────────────────
 async function objImage(file) {
   if (!/^[0-9a-f]{16}\.(png|jpg|webp)$/.test(file)) return new Response('없음', { status: 404 });
@@ -197,6 +213,7 @@ export async function handle(request) {
     if (p.startsWith('/obj/') && method === 'GET') return await objImage(p.slice(5));
     if (p === '/auth/logout' && method === 'POST') return json({ ok: true }, 200, { 'Set-Cookie': clearCookie() });
     if (!p.startsWith('/api/')) return null;
+    if (p === '/api/admin/reset' && method === 'POST') return await resetBook(request);
 
     const user = await currentUser(request.headers.get('Cookie'));
     if (p === '/api/me' && method === 'GET') return await me(user);

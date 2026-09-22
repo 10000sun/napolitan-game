@@ -6,6 +6,11 @@ export function queries(store) {
     run: (...args) => store.run(sql, args),
   });
   return {
+    // 방명록 초기화. 글이 runs 를 가리키므로 글부터 지운다 (D1 은 외래키를 지킨다).
+    resetEntries: stmt(`DELETE FROM entries`),
+    resetRuns: stmt(`DELETE FROM runs`),
+    resetBodies: stmt(`UPDATE users SET lost_parts = '[]', read_book = 0`),
+    countForReset: stmt(`SELECT (SELECT COUNT(*) FROM entries) AS entries, (SELECT COUNT(*) FROM runs) AS runs`),
     upsertUser: stmt(`
     INSERT INTO users (discord_id, username, avatar, created_at) VALUES (?, ?, ?, ?)
     ON CONFLICT(discord_id) DO UPDATE SET username = excluded.username, avatar = excluded.avatar

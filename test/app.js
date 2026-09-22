@@ -97,6 +97,27 @@ check(JSON.stringify((await get('/api/me', { cookie: A })).body.lostParts) === '
 check((await post(`/api/run/${r.body.runId}/die`, { cookie: A, body: {} })).status === 409, '두 번 죽지 않는다');
 check((await post(`/api/run/${run2}/die`, { cookie: A, body: {} })).status === 404, '남의 판은 없는 판');
 
+// ── 방명록 초기화 (마리 관리자) ──────────────────────────
+const { createHmac } = await import('node:crypto');
+const mk = (p, sec = 'test-link-secret') => {
+  const body = Buffer.from(JSON.stringify(p)).toString('base64url');
+  return `${body}.${createHmac('sha256', sec).update(body).digest('base64url')}`;
+};
+const soon = Math.floor(Date.now() / 1000) + 60;
+const RESET = mk({ id: '1', n: '관리자', e: soon, a: 'reset' });
+await store.run(`UPDATE users SET lost_parts = '["혀"]' WHERE id = ?`, [meA.user.id]);
+check((await post('/api/admin/reset', { body: { t: GOLDEN } })).status === 403, '⭐ 입장 링크로는 초기화하지 못한다');
+check((await post('/api/admin/reset', { body: { t: mk({ id: '1', n: 'x', e: soon, a: 'reset' }, 'other') } })).status === 403, '다른 열쇠의 초기화 표는 거절');
+check((await post('/api/admin/reset', { body: { t: mk({ id: '1', n: 'x', e: soon - 120, a: 'reset' }) } })).status === 403, '만료된 초기화 표는 거절');
+check((await call(`/enter?u=${RESET}`)).status === 403, '초기화 표로는 입장하지 못한다');
+r = await post('/api/admin/reset', { body: { t: RESET } });
+check(r.status === 200 && r.body.entries === 2 && r.body.runs === 3, '초기화하면 지운 글·판 수를 알려준다');
+const afterBook = await get('/api/guestbook', { cookie: B });
+const afterMe = (await get('/api/me', { cookie: A })).body;
+check(afterBook.body.entries.length === 0 && afterBook.body.pendingWrite === null, '방명록이 비고 쓸 자격도 사라진다');
+check(afterMe.user && JSON.stringify(afterMe.lostParts) === '[]' && !afterMe.readBook && afterMe.canEnter, '사람은 남고 몸·공책 읽음·연속 입장은 처음으로');
+check((await q.assetByKey.get('웃는 가면'))?.status === 'ready', '만든 이미지는 남는다');
+
 // ── 경계 ────────────────────────────────────────────────
 check((await post('/api/guestbook', { body: { text: 'x' } })).status === 401, '로그인 없이 기입 401');
 check((await post('/api/guestbook', { cookie: A, body: JSON.stringify({ text: 'x'.repeat(40_000) }) })).status === 413, '32KB 넘는 본문은 413');
