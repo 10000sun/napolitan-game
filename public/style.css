@@ -411,3 +411,36 @@ code, .mono { font-family: 'Nanum Gothic Coding', monospace; }
   .log-line { font-size: 13.5px; line-height: 1.6; }
   #minimap { width: 84px; height: 84px; top: 8px; right: 8px; }
 }
+
+
+/* ── 깜놀 ──────────────────────────────────────────
+   한 번 뜨고 끝난다. 연속 점멸은 절대 넣지 않는다 (광과민성). */
+.scare {
+  position: absolute; inset: 0; z-index: 60; pointer-events: none;
+  display: grid; place-items: center;
+}
+.scare.hidden { display: none !important; }
+
+.scare.on { background: rgba(0, 0, 0, .55); animation: jolt .2s steps(2) both; }
+.scare.on .scare-art { width: min(78vw, 78vh); height: min(78vw, 78vh); display: grid; place-items: center; }
+.scare.on img {
+  width: 100%; height: 100%; object-fit: contain;
+  filter: brightness(1.25) contrast(1.35) saturate(.7);
+}
+.scare-emoji { font-size: min(46vw, 46vh); line-height: 1; filter: drop-shadow(0 0 30px rgba(130,33,26,.8)); }
+
+/* 등 뒤의 것은 조금 더 가까이 */
+.scare.behind .scare-art { transform: scale(1.18); }
+
+@keyframes jolt {
+  0%   { transform: translate(0, 0); }
+  50%  { transform: translate(-6px, 4px); }
+  100% { transform: translate(3px, -2px); }
+}
+
+/* 암전: 아무것도 보이지 않고 아무것도 고를 수 없다 */
+.scare.black { background: #000; }
+
+@media (prefers-reduced-motion: reduce) {
+  .scare.on { animation: none; }
+}

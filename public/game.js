@@ -167,9 +167,19 @@ export class Game {
     window.addEventListener('keydown', this._onKey);
 
     this.rules = new RuleEngine(world.rules || []);
+    // 규칙이 이름을 부른 물체는 만질 수 있는 것이다. 이런 건 바닥에 눕혀
+    // 칠하지 않고 세워서 시점을 따라가게 한다 — 납작하면 무엇인지 못 알아본다.
+    this.hot = new Set((world.rules || []).map((r) => r.target).filter(Boolean));
     this.darkTurns = 0;             // 규칙이 불을 끈 남은 턴
     this.freshTurn = -1;
     this.revealTurns = 0;           // 규칙이 지도를 보여 주는 남은 턴
+    // 깜놀. 자주 터지면 개그가 되므로 엔진이 직접 횟수와 간격을 쥔다.
+    this.scares = 0;
+    this.lastScare = -99;
+    this.phantom = null;            // 등 뒤에 선 것. 판 위의 괴물이 아니라 유령이다
+    this.lieUntil = -1;             // 이 턴까지 버튼이 거짓말한다
+    this.frozen = false;            // 암전 중에는 아무것도 고를 수 없다
+    this.calm = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     this.tex = null;                        // 텍스처가 오기 전에는 예전 단색으로 그린다
     buildSurfaces(world.surfaces).then((t) => { this.tex = t; }).catch(() => {});
     this.scaleIdx = 0;
@@ -272,6 +282,8 @@ export class Game {
       if (p.x < -0.05) p.x = 1.05; else if (p.x > 1.05) p.x = -0.05;
     }
 
+    this.checkPhantom();
+
     const tx = this.cx + 0.5, ty = this.cy + 0.5;
     const ta = this.facing * (Math.PI / 2);
     const k = Math.min(1, dt * 9);
@@ -342,7 +354,7 @@ export class Game {
 
   /* ── 선택지 ───────────────────────────────────── */
   buildChoices() {
-    if (this.dead || this.won) return [];
+    if (this.dead || this.won || this.frozen) return [];
     const out = [];
     if (this.event) {
       const ev = EVENTS[this.event.id];
@@ -412,6 +424,11 @@ export class Game {
     out.push({ id: 'back', label: '뒤돌아선다', kind: 'turn', group: 'nav' });
     out.push({ id: 'left', label: '왼쪽으로 돈다', kind: 'turn', group: 'nav' });
     out.push({ id: 'right', label: '오른쪽으로 돈다', kind: 'turn', group: 'nav' });
+    // 한 턴 동안 버튼이 딴소리를 한다. 자리는 그대로라 길을 잃지는 않는다.
+    if (this.turn <= this.lieUntil) {
+      const lies = { forward: '뒤를 봐', back: '보지 마', left: '왼쪽에 있다', right: '오른쪽에 있다' };
+      for (const o of out) if (lies[o.id] && !o.disabled) o.label = lies[o.id];
+    }
     return out;
   }
 
@@ -622,6 +639,7 @@ export class Game {
             else this.audio.noise(0.6, 0.05);
           }
           break;
+        case 'scare': this.fireScare(); break;
         case 'reveal':
           this.revealTurns = Math.max(this.revealTurns, a.turns);
           this.mm.style.display = '';
@@ -632,6 +650,105 @@ export class Game {
     this.decalFrame = 0;
     // 주변이 바뀌었을 때만 다시 둘러본다 (문장만 나온 규칙에 서술이 겹치지 않게)
     if (!this.dead && acts.some((a) => ['teleport', 'object', 'monster'].includes(a.act))) this.describe();
+  }
+
+  /* ── 깜놀 ──────────────────────────────────────────
+     무엇이 올지는 그때 정한다. 적은 사람도 모른다. */
+  fireScare() {
+    // 방심할 틈도 없이 터지면 놀라지 않는다. 연달아 터지면 개그가 된다.
+    if (this.scares >= 2 || this.turn < 3 || this.turn - this.lastScare < 6) return;
+    if (this.phantom) return;
+
+    const kinds = ['face', 'behind', 'blackout', 'lie'];
+    const kind = kinds[Math.floor(Math.random() * kinds.length)];
+    this.scares++;
+    this.lastScare = this.turn;
+
+    if (kind === 'behind') { this.scareBehind(); return; }
+    if (kind === 'lie') { this.scareLie(); return; }
+    if (kind === 'blackout') { this.scareBlackout(); return; }
+    this.scareFace();
+  }
+
+  /** 들리는 소리. 크기로 놀래키지 않는다 — 다른 소리와 같은 범위를 지킨다. */
+  stinger() {
+    if (this.fx.has('deaf')) return;
+    this.audio.noise(0.22, 0.16);
+    this.audio.blip(62, 0.5, 'sawtooth', 0.11);
+  }
+
+  scareFace() {
+    this.stinger();
+    // 이 방의 괴물 얼굴이다. 방명록이 괴물 모습을 정하니 방마다 다르다.
+    const look = this.w.monsterLook;
+    this.hooks.onScare?.({ kind: 'face', img: look?.img || null, emoji: look?.emoji || null, calm: this.calm });
+    this.log('시야 가장자리에서 무언가가 스쳤다.', 'bad');
+  }
+
+  scareBlackout() {
+    this.stinger();
+    this.frozen = true;
+    this.hooks.onScare?.({ kind: 'blackout', calm: this.calm });
+    this.log('불이 전부 꺼졌다.', 'bad');
+    setTimeout(() => {
+      this.log('무언가 숨을 쉬고 있다.', 'sys');
+      setTimeout(() => {
+        if (this.dead || this.won) return;
+        this.frozen = false;
+        this.pushState();
+        this.describe();
+      }, 900);
+    }, 700);
+    this.pushState();
+  }
+
+  scareLie() {
+    this.lieUntil = this.turn + 1;
+    this.audio.blip(140, 0.18, 'sine', 0.05);
+    this.pushState();
+  }
+
+  /**
+   * 등 뒤에 세운다. 판 위의 괴물이 아니라 유령이라, 괴물이 하나도 없는 방에서도
+   * 똑같이 선다. 돌아보면 0.2초 마주치고 사라진다.
+   */
+  scareBehind() {
+    const back = (this.facing + 2) % 4;
+    const [dx, dy] = DIRS[back];
+    const c = { x: this.cx + dx, y: this.cy + dy };
+    if (this.wall(c.x, c.y)) { this.scareFace(); return; }   // 뒤가 벽이면 다른 걸로
+    this.phantom = { x: c.x, y: c.y, seenAt: 0, until: this.turn + 4 };
+    if (!this.fx.has('deaf')) this.audio.blip(70, 0.35, 'sine', 0.05);
+    this.log('등 뒤에서 숨소리가 난다.', 'bad');
+  }
+
+  /** 카메라가 유령 쪽으로 돌아앉았는가. 돌아보는 중간에 사라지면 아무도 못 본다. */
+  checkPhantom() {
+    const p = this.phantom;
+    if (!p) return;
+    const now = performance.now();
+
+    if (p.seenAt) {
+      if (now - p.seenAt > 200) {
+        this.phantom = null;
+        this.log('아무것도 없다.', 'sys');
+      }
+      return;
+    }
+    // 돌아보지 않으면 조용히 사라진다
+    if (this.turn > p.until) { this.phantom = null; return; }
+
+    let d = this.facing * (Math.PI / 2) - this.angle;
+    while (d > Math.PI) d -= TAU;
+    while (d < -Math.PI) d += TAU;
+    if (Math.abs(d) > 0.12) return;                       // 아직 돌아앉는 중
+
+    const [fx, fy] = DIRS[this.facing];
+    if (this.cx + fx !== p.x || this.cy + fy !== p.y) return;
+
+    p.seenAt = now;
+    this.stinger();
+    this.hooks.onScare?.({ kind: 'behind', calm: this.calm });
   }
 
   teleport(to) {
@@ -1091,8 +1208,10 @@ export class Game {
       if (x < 0 || y < 0 || x >= this.size || y >= this.size) return;
       this.floorDecal[y * this.size + x] = this.floorDecals.push(p) - 1;
     };
-    for (const o of this.objects) if (!o.taken && o.where !== 'wall' && o.pose === 'lie') lay(o.x, o.y, pix(o.img, o.emoji));
-    for (const it of this.items) if (!it.taken) lay(it.x, it.y, pix(it.img, ITEM_EMOJI[it.kind]));
+    // 눕혀 칠하는 건 손댈 일 없는 배경뿐이다.
+    for (const o of this.objects) {
+      if (!o.taken && o.where !== 'wall' && o.pose === 'lie' && !this.hot.has(o.key)) lay(o.x, o.y, pix(o.img, o.emoji));
+    }
   }
 
   /** 형광등 깜빡임. 가끔 0.1~0.3초 어두워진다. */
@@ -1254,6 +1373,15 @@ export class Game {
 
   collectSprites() {
     const out = [];
+    // 마주친 0.2초 동안만 보인다
+    if (this.phantom?.seenAt) {
+      const look = this.w.monsterLook;
+      out.push({
+        kind: 'monster',
+        ref: look && (look.img || look.emoji !== '❔') ? { ...look, id: 'monster' } : null,
+        x: this.phantom.x + 0.5, y: this.phantom.y + 0.5, h: 1.15, w: 0.8,
+      });
+    }
     for (const m of this.monsters) {
       const look = this.w.monsterLook && (this.w.monsterLook.img || this.w.monsterLook.emoji !== '❔') ? this.w.monsterLook : null;
       if (m.alive) out.push({ kind: 'monster', ref: look ? { ...look, id: 'monster' } : null, x: m.x + 0.5, y: m.y + 0.5, h: 1.05, w: 0.75 });
@@ -1268,7 +1396,7 @@ export class Game {
       // 텍스처가 오기 전에는 벽·바닥 그림을 그릴 수 없으니 예전처럼 세워 둔다.
       for (const it of this.items) {
         if (it.taken) continue;
-        out.push({ kind: it.kind, ref: it, x: it.x + 0.5, y: it.y + 0.5, h: 0.22, w: 0.4, ground: true });
+        out.push({ kind: it.kind, ref: it, x: it.x + 0.5, y: it.y + 0.5, h: 0.42, w: 0.42, ground: true });
       }
       for (const o of this.objects) {
         if (o.taken) continue;
@@ -1280,9 +1408,21 @@ export class Game {
         }
       }
     } else {
-      // 줍는 아이템·벽 물체·누운 물체는 render() 가 벽과 바닥에 그린다.
+      // 벽 물체와 손댈 일 없는 누운 물체만 render() 가 벽과 바닥에 그린다.
+      // 주울 수 있는 것은 언제나 세운다 — 바닥에 칠하면 글을 읽어야 무엇인지 안다.
+      for (const it of this.items) {
+        if (it.taken) continue;
+        out.push({ kind: it.kind, ref: it, x: it.x + 0.5, y: it.y + 0.5, h: 0.42, w: 0.42, ground: true });
+      }
       for (const o of this.objects) {
-        if (o.taken || o.where === 'wall' || o.pose === 'lie') continue;
+        if (o.taken || o.where === 'wall') continue;
+        // 만질 수 있는 것은 누워 있어도 세운다. 고정된 판으로도 두지 않는다 —
+        // 옆에서 보면 사라져서 무엇인지 알 수 없다.
+        if (this.hot.has(o.key)) {
+          out.push({ kind: 'object', ref: o, x: o.x + 0.5 + o.dx, y: o.y + 0.5 + o.dy, h: 0.75, w: 0.65, ground: true });
+          continue;
+        }
+        if (o.pose === 'lie') continue;
         if (o.moves === 'still') out.push({ kind: 'plane', ref: o, x: o.x + 0.5, y: o.y + 0.5 });
         else out.push({ kind: 'object', ref: o, x: o.x + 0.5 + o.dx, y: o.y + 0.5 + o.dy, h: 0.7, w: 0.6, ground: true });
       }

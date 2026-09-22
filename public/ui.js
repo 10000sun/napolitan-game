@@ -126,6 +126,7 @@ async function enterRoom() {
       onHud: renderHud,
       onChoices: renderChoices,
       onHit: flashRed,
+      onScare: showScare,
       onEnd: endRun,
     }, body);
     game.start();
@@ -176,6 +177,25 @@ function renderHud(h) {
   $('hud-gear').innerHTML = gear.join(' · ');
 
   $('hud-turns').innerHTML = h.lost?.length ? `없음 <b class="low">${escapeHtml(h.lost.join(', '))}</b>` : '';
+}
+
+/** 깜놀. 번쩍임은 한 번뿐이고, 줄여 달라고 한 사람에게는 아예 보이지 않는다. */
+function showScare({ kind, img, emoji, calm }) {
+  const el = $('scare');
+  const art = $('scare-art');
+  if (kind === 'blackout') {
+    art.innerHTML = '';
+    el.className = 'scare black';
+    setTimeout(() => { el.className = 'scare hidden'; }, 1600);
+    return;
+  }
+  if (calm) return;                      // 광과민성 — 소리와 글만으로 간다
+  art.innerHTML = img
+    ? `<img src="${escapeHtml(img)}" alt="">`
+    : `<span class="scare-emoji">${escapeHtml(emoji || '\u2620')}</span>`;
+  el.className = `scare on ${kind}`;
+  clearTimeout(showScare._t);
+  showScare._t = setTimeout(() => { el.className = 'scare hidden'; }, kind === 'behind' ? 200 : 220);
 }
 
 function flashRed() {

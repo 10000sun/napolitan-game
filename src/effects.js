@@ -149,7 +149,7 @@ export const EFFECTS = {
       + "| { act:'teleport', to:'random'|'start'|'exit' } | { act:'monster', do:'flee'|'stun'|'enrage'|'spawn', count:1~3 } "
       + "| { act:'dark', turns:1~5 } | { act:'give', item:'ammo'|'pistol'|'knife'|'map', count } "
       + "| { act:'object', do:'vanish'|'follow'|'wander'|'come' } | { act:'sound', kind:'scream'|'whisper'|'knock' } "
-      + "| { act:'reveal', turns:1~10 }. 방 전체에 규칙은 20개까지.",
+      + "| { act:'reveal', turns:1~10 } | { act:'scare' }. 방 전체에 규칙은 20개까지.",
     params: { on: 'string', target: 'string', verb: 'string', n: 'number', chance: 'number', once: 'boolean', do: 'array' },
     apply: (s, e) => {
       const r = normalizeRule(e);
@@ -289,7 +289,7 @@ const oneOf = (v, allowed) => {
 
 /** 규칙의 행동 하나. 모르는 행동이면 null, 값은 범위로 자른다. */
 export function normalizeAction(a) {
-  switch (oneOf(a?.act, ['say', 'hp', 'lose_part', 'teleport', 'monster', 'dark', 'give', 'object', 'sound', 'reveal'])) {
+  switch (oneOf(a?.act, ['say', 'hp', 'lose_part', 'teleport', 'monster', 'dark', 'give', 'object', 'sound', 'reveal', 'scare'])) {
     case 'say': {
       if (typeof a.text !== 'string' && typeof a.text !== 'number') return null;
       const text = String(a.text).trim().slice(0, 120);
@@ -316,6 +316,8 @@ export function normalizeAction(a) {
     case 'object': return { act: 'object', do: pick(a.do, ['vanish', 'follow', 'wander', 'come']) };
     case 'sound': return { act: 'sound', kind: pick(a.kind, ['scream', 'whisper', 'knock']) };
     case 'reveal': return { act: 'reveal', turns: clamp(a.turns ?? 3, 1, 10) };
+    // 어떤 식으로 놀래킬지는 엔진이 그때그때 고른다. 적은 사람도 무엇이 올지 모른다.
+    case 'scare': return { act: 'scare' };
     default: return null;
   }
 }
