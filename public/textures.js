@@ -96,6 +96,20 @@ export function wallpaper(px) {
   return px;
 }
 
+/** 문짝에 문틀·손잡이·아래 문틈으로 새는 빛을 그린다. 나무 판만으로는 문으로 읽히지 않는다. */
+export function doorDetails(px) {
+  for (let y = 0; y < TEX; y++) {
+    for (let x = 0; x < TEX; x++) {
+      const u = x / TEX, v = y / TEX;
+      const i = (y * TEX + x) * 4;
+      if (v > 0.975) { px[i] = 232; px[i + 1] = 204; px[i + 2] = 128; continue; }          // 문틈 빛
+      if (u < 0.06 || u > 0.94 || v < 0.04) { px[i] *= 0.45; px[i + 1] *= 0.45; px[i + 2] *= 0.45; continue; }   // 문틀
+      if ((u - 0.8) ** 2 + ((v - 0.55) * 1.6) ** 2 < 0.0012) { px[i] = 214; px[i + 1] = 186; px[i + 2] = 108; }   // 손잡이
+    }
+  }
+  return px;
+}
+
 /**
  * 이 천장 칸의 형광등이 달린 타일. 칸마다 타일 네 장(0 왼위 1 오위 2 왼아래 3 오아래) 중 하나, 없으면 -1.
  * 좌표 해시로 정하니 무작위처럼 흩어지되 같은 칸은 언제나 같다.
@@ -145,6 +159,6 @@ export async function buildSurfaces(surfaces = {}) {
   }
   const panel = await loadImg('/tex/ceil.jpg');
   out.light = panel ? pixelsOf(panel, [8, 8, 72, 72]) : procedural('light');
-  out.doorCanvas = canvasOf(out.door);
+  out.doorCanvas = canvasOf(doorDetails(new Uint8ClampedArray(out.door)));
   return out;
 }

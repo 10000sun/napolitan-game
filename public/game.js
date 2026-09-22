@@ -1037,6 +1037,7 @@ export class Game {
       this.grid = backup;
       return;
     }
+    this._door = null;   // 문이 기댈 벽이 바뀌었을 수 있다
     this.log('벽이 움직이는 소리가 난다.', 'sys');
   }
 
@@ -1286,7 +1287,11 @@ export class Game {
         out.push({ kind: 'trap', x: t.x + 0.5, y: t.y + 0.5, h: 0.06, w: 0.95, ground: true });
       }
     }
-    if (this.w.exit) out.push({ kind: 'door', x: this.w.exit.x + 0.5, y: this.w.exit.y + 0.5, h: 0.92, w: 0.72 });
+    if (this.w.exit) {
+      // 텍스처가 오면 문은 방향이 고정된 판이다. 그 전에는 예전처럼 세워 둔다.
+      out.push(this.tex ? { kind: 'doorPlane', x: this.w.exit.x + 0.5, y: this.w.exit.y + 0.5 }
+        : { kind: 'door', x: this.w.exit.x + 0.5, y: this.w.exit.y + 0.5, h: 0.92, w: 0.72 });
+    }
     return out;
   }
 
@@ -1309,6 +1314,7 @@ export class Game {
 
     for (const s of sprites) {
       if (s.kind === 'plane') { this.drawPlane(s.ref); continue; }
+      if (s.kind === 'doorPlane') { const d = this.doorSegment(); this.drawSegment(d.ax, d.ay, d.bx, d.by, 'door', this.tex.doorCanvas, 0.92, false); continue; }
       const sx = s.x - this.px, sy = s.y - this.py;
       const tx = invDet * (dirY * sx - dirX * sy);
       const ty = invDet * (-planeY * sx + planeX * sy);
@@ -1389,14 +1395,40 @@ export class Game {
 
   /** 방향이 고정된 판. 옆에서 보면 얇아지고, 나를 쳐다보지 않는다. */
   drawPlane(o) {
+    const th = (o.stretch - 1.15) / 0.2 * Math.PI;           // id 로 정해진 각도 (0 ~ π)
+    const hw = 0.32;
+    const img = sprite(o.img);
+    o.visible = this.drawSegment(
+      o.x + 0.5 - Math.cos(th) * hw, o.y + 0.5 - Math.sin(th) * hw,
+      o.x + 0.5 + Math.cos(th) * hw, o.y + 0.5 + Math.sin(th) * hw,
+      img ? o.img : `e:${o.emoji}`, img || emojiCanvas(o.emoji), 0.7 * o.stretch, true);
+  }
+
+  /**
+   * 문. 출구 칸으로 다가오는 쪽을 향해 방향이 고정된 판으로, 칸의 먼 쪽에 선다.
+   * 막다른 복도면 끝 벽에 붙은 문처럼 보이고, 넓은 방이면 홀로 선 문틀이 된다.
+   */
+  doorSegment() {
+    if (this._door) return this._door;
+    const e = this.w.exit;
+    const isFloor = (x, y) => !this.wall(x, y);
+    const back = nextStep(isFloor, e, { x: 1, y: 1 })
+      || DIRS.map(([dx, dy]) => ({ x: e.x + dx, y: e.y + dy })).find((c) => isFloor(c.x, c.y))
+      || { x: e.x - 1, y: e.y };
+    const dx = back.x - e.x, dy = back.y - e.y;               // 다가오는 쪽
+    const cx = e.x + 0.5 - dx * 0.44, cy = e.y + 0.5 - dy * 0.44;
+    const hx = -dy * 0.28, hy = dx * 0.28;                    // 다가오는 쪽과 수직, 폭 0.56칸
+    // 다가오는 쪽에서 봤을 때 손잡이가 오른쪽에 오도록 끝점 순서를 잡는다
+    this._door = { ax: cx + hx, ay: cy + hy, bx: cx - hx, by: cy - hy };
+    return this._door;
+  }
+
+  /** 두 점 사이에 선 판을 열마다 그린다. 옆에서 보면 얇아지고, 안개를 받는다. 그렸으면 true. */
+  drawSegment(ax, ay, bx, by, key, source, height, uncanny) {
     const { rw, rh } = this;
     const c = this.ctx;
     const dirX = Math.cos(this.angle), dirY = Math.sin(this.angle);
     const planeX = -dirY * this.fov, planeY = dirX * this.fov;
-    const th = (o.stretch - 1.15) / 0.2 * Math.PI;           // id 로 정해진 각도 (0 ~ π)
-    const hw = 0.32;
-    const ax = o.x + 0.5 - Math.cos(th) * hw, ay = o.y + 0.5 - Math.sin(th) * hw;
-    const bx = o.x + 0.5 + Math.cos(th) * hw, by = o.y + 0.5 + Math.sin(th) * hw;
 
     // 양 끝을 화면에 투영해 걸치는 열만 훑는다. 한쪽이 뒤에 있으면 전부.
     const invDet = 1 / (planeX * dirY - dirX * planeY);
@@ -1406,28 +1438,26 @@ export class Game {
       return ty > 0.01 ? (rw / 2) * (1 + invDet * (dirY * sx - dirX * sy) / ty) : null;
     };
     const sa = screenX(ax, ay), sb = screenX(bx, by);
-    if (sa === null && sb === null) { o.visible = false; return; }
+    if (sa === null && sb === null) return false;
     const x0 = (sa === null || sb === null) ? 0 : Math.max(0, Math.floor(Math.min(sa, sb)) - 1);
     const x1 = (sa === null || sb === null) ? rw - 1 : Math.min(rw - 1, Math.ceil(Math.max(sa, sb)) + 1);
 
-    const img = sprite(o.img);
-    const key = img ? o.img : `e:${o.emoji}`;
-    const source = img || emojiCanvas(o.emoji);
     const blind = this.fx.has('blind');
+    const fogColor = blind ? FOG.map((v) => v * 0.35) : FOG;
     let drawn = false;
     for (let x = x0; x <= x1; x++) {
       const camX = (2 * x) / rw - 1;
       const hit = raySegment(this.px, this.py, dirX + planeX * camX, dirY + planeY * camX, ax, ay, bx, by);
       if (!hit || hit.t >= this.zBuf[x] || hit.t < 0.2 || (blind && hit.t > 1.5)) continue;
       drawn = true;
-      // 멀수록 어둡다. 밝기 단계마다 보정 필터를 미리 입힌 캔버스를 쓴다 (열마다 필터를 걸면 느리다).
-      const src = filteredCanvas(key, source, Math.max(0.16, Math.min(1, 5.2 / hit.t)), fogOf(hit.t, blind), blind ? FOG.map((v) => v * 0.35) : FOG);
+      // 멀수록 어둡고 안개가 덮인다. 단계마다 미리 입힌 캔버스를 쓴다 (열마다 필터를 걸면 느리다).
+      const src = filteredCanvas(key, source, Math.max(0.16, Math.min(1, 5.2 / hit.t)), fogOf(hit.t, blind), fogColor, uncanny);
       const unit = rh / hit.t;
       const bottom = rh / 2 + unit / 2;
-      const top = bottom - unit * 0.7 * o.stretch;
+      const top = bottom - unit * height;
       c.drawImage(src, Math.min(src.width - 1, (hit.s * src.width) | 0), 0, 1, src.height, x, top, 1, bottom - top);
     }
-    o.visible = drawn;
+    return drawn;
   }
 
   drawDust() {

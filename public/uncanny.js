@@ -128,15 +128,15 @@ const nearest = (list, v) => list.reduce((a, b) => (Math.abs(b - v) < Math.abs(a
  * 기괴 보정 + 밝기 + 안개를 미리 입힌 캔버스. 몇 단계로 나눠 캐시한다.
  * fogColor 는 [r,g,b], fog 는 0~1. 안개는 그림이 있는 픽셀에만 덮인다.
  */
-export function filteredCanvas(key, source, brightness = 1, fog = 0, fogColor = [0, 0, 0]) {
+export function filteredCanvas(key, source, brightness = 1, fog = 0, fogColor = [0, 0, 0], uncanny = true) {
   const level = nearest(LEVELS, brightness);
   const fl = nearest(FOG_LEVELS, fog);
-  const k = `${key}|${level}|${fl}|${fogColor.join()}`;
+  const k = `${key}|${level}|${fl}|${fogColor.join()}|${uncanny ? 1 : 0}`;
   if (filteredCache.has(k)) return filteredCache.get(k);
   const c = document.createElement('canvas');
   c.width = source.width; c.height = source.height;
   const g = c.getContext('2d');
-  if (FILTER_OK) g.filter = `grayscale(.7) sepia(.45) contrast(1.3) brightness(${level})`;
+  if (FILTER_OK) g.filter = uncanny ? `grayscale(.7) sepia(.45) contrast(1.3) brightness(${level})` : `brightness(${level})`;
   g.drawImage(source, 0, 0);
   if (fl > 0) {
     g.filter = 'none';
