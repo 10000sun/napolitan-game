@@ -1,0 +1,111 @@
+// 요청 처리. 메모리 DB·메모리 이미지·가짜 fetch 로 워커 없이 돌린다.
+delete process.env.DEV_NO_AUTH;
+process.env.MARI_LINK_SECRET = 'test-link-secret';
+process.env.LLM_PROVIDER = 'gemini';
+process.env.GEMINI_API_KEY = 'k';
+process.env.IMAGE_PROVIDER = 'gemini';
+
+let say = null;          // 판정 모델이 뱉을 JSON
+let imageOk = true;      // 이미지 생성이 되는가
+globalThis.fetch = async (url) => {
+  if (String(url).includes(':generateContent')) {
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(say) }] } }] }), { status: 200 });
+  }
+  if (!imageOk) return new Response('boom', { status: 500 });
+  const data = Buffer.alloc(300, 7).toString('base64');
+  return new Response(JSON.stringify({ steps: [{ type: 'model_output', content: [{ type: 'image', data, mime_type: 'image/png' }] }] }), { status: 200 });
+};
+
+const { useStore } = await import('../src/db.js');
+const { nodeStore } = await import('../src/store.js');
+const store = await nodeStore();
+useStore(store);
+const { q } = await import('../src/db.js');
+const { useImages } = await import('../src/assets.js');
+const images = new Map();
+useImages({ put: async (f, bytes, type) => { images.set(f, { bytes, type }); }, get: async (f) => images.get(f) ?? null });
+const { handle } = await import('../src/app.js');
+const { sessionCookie } = await import('../src/auth.js');
+
+let fail = 0;
+const check = (c, label) => { console.log(`  ${c ? '✓' : '✗'} ${label}`); if (!c) fail++; };
+
+const call = (path, { method = 'GET', cookie, body } = {}) => handle(new Request(`http://t${path}`, {
+  method, headers: { ...(cookie ? { Cookie: cookie } : {}), 'Content-Type': 'application/json' },
+  body: body === undefined ? undefined : (typeof body === 'string' ? body : JSON.stringify(body)),
+}));
+const get = async (path, opts) => { const r = await call(path, opts); return { status: r.status, body: await r.json() }; };
+const post = (path, opts = {}) => get(path, { ...opts, method: 'POST' });
+const backdate = (runId) => store.run('UPDATE runs SET started_at = started_at - 5000 WHERE id = ?', [runId]);
+
+// ── 로그인 ──────────────────────────────────────────────
+check((await get('/api/me')).body.user === null, '쿠키가 없으면 로그인 안 됨');
+check((await get('/api/me', { cookie: 'nps=abc.def' })).body.user === null, '망가진 쿠키도 에러 없이 로그인 안 됨');
+check((await call('/enter?u=nope')).status === 403, '잘못된 표는 403');
+
+const GOLDEN = 'eyJpZCI6IjEyMzQ1Njc4OTAxMjM0NTY3OCIsIm4iOiLrp4jrpqwg7YWM7Iqk7Yq4IiwiZSI6MjAwMDAwMDAwMH0.Nd31-9GN_dViZPQbr3_gLJIDZUXbRp5hunFdtquovgg';
+const entered = await call(`/enter?u=${GOLDEN}`);
+const setCookie = entered.headers.get('Set-Cookie') || '';
+check(entered.status === 302 && entered.headers.get('Location') === '/', '마리 표로 들어오면 / 로 보낸다');
+check(/HttpOnly/.test(setCookie) && /SameSite=Lax/.test(setCookie) && !/Secure/.test(setCookie), 'http 에서는 Secure 없이 쿠키');
+check(/Secure/.test((await handle(new Request(`https://t/enter?u=${GOLDEN}`))).headers.get('Set-Cookie')), 'https 면 Secure');
+const A = setCookie.split(';')[0];
+const meA = (await get('/api/me', { cookie: A })).body;
+check(meA.user?.username === '마리 테스트' && meA.canEnter && !meA.readBook, '그 쿠키로 내가 누군지 안다');
+
+// ── 런 ──────────────────────────────────────────────────
+check((await post('/api/run/start', { cookie: A })).status === 409, '공책을 안 읽으면 못 들어간다');
+check((await get('/api/guestbook', { cookie: A })).status === 200, '공책을 읽는다');
+let r = await post('/api/run/start', { cookie: A });
+check(r.status === 200 && r.body.runId && Array.isArray(r.body.world.objects), '읽은 뒤에는 들어간다');
+const run1 = r.body.runId;
+check((await post(`/api/run/${run1}/clear`, { cookie: A, body: { lostParts: [] } })).status === 400, '2초 전에는 못 나간다');
+await backdate(run1);
+check((await post(`/api/run/${run1}/clear`, { cookie: A, body: { lostParts: ['혀'] } })).status === 200, '나간다');
+check(JSON.stringify((await get('/api/me', { cookie: A })).body.lostParts) === '["혀"]', '잃은 부위가 남는다');
+check((await post(`/api/run/${run1}/clear`, { cookie: A, body: {} })).status === 409, '끝난 판은 다시 못 끝낸다');
+
+// ── 방명록 기입과 모습 ──────────────────────────────────
+check((await get('/api/guestbook', { cookie: A })).body.pendingWrite === run1, '나온 사람은 적을 수 있다');
+say = { verdict: 'applied', reason: '있다', effects: [{ type: 'object.spawn', name: '웃는 가면', tags: 'mask, smiling, pale', emoji: '🎭', count: 1 }] };
+r = await post('/api/guestbook', { cookie: A, body: { text: '입구에 웃는 가면이 있다' } });
+check(r.status === 200 && r.body.verdict === 'applied', '기입이 반영된다');
+const mask = await q.assetByKey.get('웃는 가면');
+check(mask?.status === 'ready' && /^\/obj\/[0-9a-f]{16}\.png$/.test(mask.file), '응답 전에 모습이 확보된다');
+const img = await call(mask.file);
+check(img.status === 200 && img.headers.get('Content-Type') === 'image/png' && (await img.arrayBuffer()).byteLength === 300, '/obj 가 그 이미지를 준다');
+check((await post('/api/guestbook', { cookie: A, body: { text: '또' } })).status === 403, '한 판에 한 줄');
+
+// 두 번째 사람. 이미지가 안 만들어져도 글은 남는다.
+const b = await q.upsertUser.get('222', 'B', null, Date.now());
+const B = sessionCookie(b).split(';')[0];
+await get('/api/guestbook', { cookie: B });
+const run2 = (await post('/api/run/start', { cookie: B })).body.runId;
+check((await post('/api/run/start', { cookie: B })).status === 409, '연달아 두 번은 못 들어간다');
+await backdate(run2);
+await post(`/api/run/${run2}/clear`, { cookie: B, body: {} });
+imageOk = false;
+say = { verdict: 'applied', reason: '있다', effects: [{ type: 'object.spawn', name: '녹슨 손', tags: 'hand, rusty', emoji: '✋', count: 1 }] };
+r = await post('/api/guestbook', { cookie: B, body: { text: '녹슨 손이 있다' } });
+check(r.status === 200 && (await q.assetByKey.get('녹슨 손'))?.status === 'failed', '이미지 생성이 실패해도 기입은 200');
+r = await post('/api/run/start', { cookie: A });
+check(r.body.world.objects.some((o) => o.img === mask.file), '다음 판의 물체에 모습이 붙는다');
+
+// ── 죽음 ────────────────────────────────────────────────
+check((await post(`/api/run/${r.body.runId}/die`, { cookie: A, body: { x: 1.5, y: 1.5 } })).status === 200, '죽는다');
+check(JSON.stringify((await get('/api/me', { cookie: A })).body.lostParts) === '[]', '죽으면 몸은 새것');
+check((await post(`/api/run/${r.body.runId}/die`, { cookie: A, body: {} })).status === 409, '두 번 죽지 않는다');
+check((await post(`/api/run/${run2}/die`, { cookie: A, body: {} })).status === 404, '남의 판은 없는 판');
+
+// ── 경계 ────────────────────────────────────────────────
+check((await post('/api/guestbook', { body: { text: 'x' } })).status === 401, '로그인 없이 기입 401');
+check((await post('/api/guestbook', { cookie: A, body: JSON.stringify({ text: 'x'.repeat(40_000) }) })).status === 413, '32KB 넘는 본문은 413');
+check((await post('/api/guestbook', { cookie: A, body: '{깨짐' })).status === 400, '읽을 수 없는 본문은 400');
+check((await call('/obj/..%2Fx')).status === 404 && (await call('/obj/0000000000000000.png')).status === 404, '/obj 이상한 이름·없는 파일은 404');
+const nope = await call('/api/nope');
+check(nope.status === 404 && (await nope.json()).error, '모르는 /api 는 404 JSON');
+check((await call('/index.html')) === null && (await call('/tex/a.png')) === null, '정적 파일은 넘긴다');
+check((await get('/healthz')).body.ok === true, 'healthz');
+
+console.log(fail === 0 ? '\n전부 통과\n' : `\n${fail}건 실패\n`);
+process.exit(fail ? 1 : 0);

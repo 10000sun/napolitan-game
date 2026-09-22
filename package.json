@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node test/store.js && node test/replay.js && node test/compiler.js && node test/assets.js && node test/client.js && node test/server.js",
+    "test": "node test/store.js && node test/replay.js && node test/compiler.js && node test/assets.js && node test/client.js && node test/server.js && node test/app.js",
     "seed": "node test/seed.js",
     "tag-assets": "node scripts/tag-assets.js"
   },
@@ -16,10 +16,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "better-sqlite3": "^12.11.1",
-    "cookie-parser": "^1.4.7",
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2"
+    "better-sqlite3": "^12.11.1"
   },
   "devDependencies": {
     "wrangler": "^4.136.1"
