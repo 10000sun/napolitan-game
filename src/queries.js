@@ -39,11 +39,11 @@ export function queries(store) {
     runById: stmt('SELECT * FROM runs WHERE id = ?'),
     clearRun: stmt('UPDATE runs SET cleared_at = ? WHERE id = ? AND cleared_at IS NULL'),
     dieRun: stmt(`
-    UPDATE runs SET died_at = ?, death_x = ?, death_y = ?
+    UPDATE runs SET died_at = ?, death_x = ?, death_y = ?, death_parts = ?
     WHERE id = ? AND cleared_at IS NULL AND died_at IS NULL`),
   // 누가 죽었는지는 꺼내지 않는다. 자리만.
     recentDeaths: stmt(`
-    SELECT death_x AS x, death_y AS y FROM runs
+    SELECT death_x AS x, death_y AS y, death_parts AS parts FROM runs
     WHERE died_at IS NOT NULL AND death_x IS NOT NULL
     ORDER BY died_at DESC LIMIT 30`),
     useRunEntry: stmt('UPDATE runs SET entry_used = 1 WHERE id = ?'),

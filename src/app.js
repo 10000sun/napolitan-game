@@ -235,7 +235,9 @@ async function dieRun(request, id, user) {
   // 그 런이 걷던 미로 크기 안의 칸만 믿는다.
   const size = foldEffects((await loadAppliedRules()).slice(0, run.rule_count).map((r) => r.effects)).mazeSize;
   const cell = deathCell(body, size);
-  await q.dieRun.run(Date.now(), cell?.x ?? null, cell?.y ?? null, run.id);
+  // 죽을 때의 몸을 함께 남긴다. 다리가 없던 사람은 다리 없는 시체로 남는다.
+  const lost = await bodyOf(user.id);
+  await q.dieRun.run(Date.now(), cell?.x ?? null, cell?.y ?? null, JSON.stringify(lost), run.id);
   await resetBody(user.id);
   return json({ ok: true });
 }

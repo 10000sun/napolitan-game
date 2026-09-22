@@ -7,7 +7,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import { foldEffects } from './effects.js';
-import { BODY_PARTS } from '../public/body.js';
+import { BODY_PARTS, sanitizeParts } from '../public/body.js';
 
 /** mulberry32 — 짧고 시드 재현성이 확실한 PRNG. */
 function prng(seed) {
@@ -238,7 +238,10 @@ export function buildWorld(appliedRules, deaths = [], lockCode = null) {
   for (const d of deaths.slice(0, 30)) {
     const c = nearestFloor(grid, d.x, d.y);
     if (!c || (c.x === 1 && c.y === 1) || (exit && c.x === exit.x && c.y === exit.y)) continue;
-    corpses.push(c);
+    // 죽을 때 잃었던 부위는 시체에도 없다.
+    let parts = [];
+    try { parts = sanitizeParts(JSON.parse(d.parts || '[]')); } catch { parts = []; }
+    corpses.push(parts.length ? { ...c, parts } : c);
   }
 
   // ── 자물쇠 숫자. 한 자리씩 흩어 두되, 반드시 갈 수 있는 칸에만 둔다.

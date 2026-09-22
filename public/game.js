@@ -1451,7 +1451,7 @@ export class Game {
       if (m.alive) out.push({ kind: 'monster', ref: look ? { ...look, id: 'monster' } : null, x: m.x + 0.5, y: m.y + 0.5, h: 1.05, w: 0.75 });
     }
     for (const c of this.corpses) {
-      if (!c.taken) out.push({ kind: 'corpse', x: c.x + 0.5, y: c.y + 0.5, h: 0.42, w: 1.12, ground: true });
+      if (!c.taken) out.push({ kind: 'corpse', parts: c.parts, x: c.x + 0.5, y: c.y + 0.5, h: 0.42, w: 1.12, ground: true });
     }
     for (const b of this.baits) {
       out.push({ kind: 'corpse', x: b.x + 0.5, y: b.y + 0.5, h: 0.42, w: 1.12, ground: true });
@@ -1803,16 +1803,23 @@ export class Game {
       c.lineCap = 'round';
       c.lineJoin = 'round';
 
-      // 다리 둘. 오른쪽으로 뻗어 있고 하나는 무릎이 접혔다.
+      // 이 사람이 잃은 채로 죽었다면 시체에도 없다.
+      const gone = new Set(sprite.parts || []);
+      const noLeg = gone.has('오른쪽 다리');
+      const shortLeg = gone.has('왼쪽 발목');
+      const noArm = gone.has('오른쪽 팔');
+      const noHand = gone.has('왼쪽 손목');
+
+      // 다리. 하나가 없으면 그루터기만 남는다.
       c.strokeStyle = DARK;
       c.lineWidth = Math.max(1.4, h * 0.17);
       c.beginPath();
       c.moveTo(cx + w * 0.06, baseY - h * 0.16);
-      c.lineTo(cx + w * 0.34, baseY - h * 0.06);
+      c.lineTo(cx + w * (noLeg ? 0.14 : 0.34), baseY - h * (noLeg ? 0.12 : 0.06));
       c.stroke();
       c.beginPath();
       c.moveTo(cx + w * 0.06, baseY - h * 0.2);
-      c.quadraticCurveTo(cx + w * 0.24, baseY - h * 0.42, cx + w * 0.32, baseY - h * 0.22);
+      c.quadraticCurveTo(cx + w * 0.24, baseY - h * 0.42, cx + w * (shortLeg ? 0.26 : 0.32), baseY - h * (shortLeg ? 0.32 : 0.22));
       c.stroke();
 
       // 엎드린 몸통
@@ -1831,18 +1838,24 @@ export class Game {
       c.beginPath();
       c.ellipse(cx - w * 0.25, baseY - h * 0.24, w * 0.075, h * 0.17, 0.2, 0, TAU);
       c.fill();
-      c.fillStyle = DARK;                                   // 헝클어진 머리카락
-      c.beginPath();
-      c.ellipse(cx - w * 0.28, baseY - h * 0.3, w * 0.066, h * 0.13, 0.2, 0, TAU);
-      c.fill();
+      if (!gone.has('머리카락 한 움큼')) {                   // 헝클어진 머리카락
+        c.fillStyle = DARK;
+        c.beginPath();
+        c.ellipse(cx - w * 0.28, baseY - h * 0.3, w * 0.066, h * 0.13, 0.2, 0, TAU);
+        c.fill();
+      }
 
-      // 이쪽으로 뻗은 팔 하나
-      c.strokeStyle = SKIN;
-      c.lineWidth = Math.max(1.1, h * 0.1);
-      c.beginPath();
-      c.moveTo(cx - w * 0.14, baseY - h * 0.28);
-      c.quadraticCurveTo(cx - w * 0.23, baseY - h * 0.1, cx - w * 0.36, baseY - h * 0.04);
-      c.stroke();
+      // 이쪽으로 뻗은 팔 하나. 어깨에서 없으면 아예 그리지 않고,
+      // 손목만 없으면 팔이 중간에서 끝난다.
+      if (!noArm) {
+        c.strokeStyle = SKIN;
+        c.lineWidth = Math.max(1.1, h * 0.1);
+        c.beginPath();
+        c.moveTo(cx - w * 0.14, baseY - h * 0.28);
+        if (noHand) c.quadraticCurveTo(cx - w * 0.2, baseY - h * 0.18, cx - w * 0.26, baseY - h * 0.12);
+        else c.quadraticCurveTo(cx - w * 0.23, baseY - h * 0.1, cx - w * 0.36, baseY - h * 0.04);
+        c.stroke();
+      }
 
       return;
     }
