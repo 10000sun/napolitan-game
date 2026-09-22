@@ -146,8 +146,10 @@ export function buildWorld(appliedRules, deaths = []) {
   }
   cells.sort((a, b) => b.d - a.d);
 
-  // 출구: 시작점에서 가장 먼 칸
-  const exit = state.noExit ? null : (cells[0] ? { x: cells[0].x, y: cells[0].y } : { x: 1, y: 1 });
+  // 출구: 시작점에서 먼 쪽 30% 칸 중 하나. 늘 정반대 구석이면 뻔하다. 시드로 고르니 방명록이 같으면 같은 자리.
+  const far = cells.slice(0, Math.max(1, Math.ceil(cells.length * 0.3)));
+  const pickExit = far[Math.floor(rand() * far.length)];
+  const exit = state.noExit ? null : (pickExit ? { x: pickExit.x, y: pickExit.y } : { x: 1, y: 1 });
 
   // 배치 후보는 출구/시작점을 뺀 나머지를 섞어서 소비
   const pool = cells

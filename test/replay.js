@@ -117,12 +117,8 @@ check(!('hunger' in foldEffects([[{ type: 'rule.hunger', seconds: 60 }]])), '배
 // ── 말 그대로: 배치 ──────────────────────────────────────
 const snap = JSON.parse(fs.readFileSync(new URL('./fixtures/replay-final.json', import.meta.url)));
 const now = buildWorld(rules);
-const { layout: _l, monsterLook: _m, objects: _o1, surfaces: _s1, rules: _r1, ...nowOld } = now;
-const { objects: _o2, ...snapOld } = snap;
-delete snapOld.state.hunger;
-delete nowOld.state.surfaces;
-delete nowOld.state.rules;
-check(JSON.stringify(nowOld) === JSON.stringify(snapOld), '원작 방명록의 월드는 변경 전과 같다');
+// 스냅샷은 출구를 먼 쪽 무작위로 바꾼 뒤 다시 떴다. 월드가 바뀌면 의도한 변경일 때만 다시 뜬다.
+check(JSON.stringify(now) === JSON.stringify(snap), '원작 방명록의 월드는 스냅샷과 같다');
 check(now.layout === 'maze', '크기 15 에 레이아웃이 없으면 미로');
 
 const roomW = buildWorld([{ id: 1, effects: [{ type: 'maze.size', value: 15 }, { type: 'maze.layout', value: 'room' }] }]);
@@ -178,6 +174,20 @@ const pw2 = buildWorld([{ id: 1, effects: [
   { type: 'rule.when', on: 'pickup', target: '돌', do: [{ act: 'say', text: 'x' }] },
 ] }]);
 check(pw2.rules.map((r) => r.target).join() === '칼', '주울 수 없는 것(지니고 들어오는 지도, 쓰임 없는 물체)의 줍기 규칙은 빠진다');
+
+// ── 출구: 먼 쪽 칸들 중 무작위 ──────────────────────────
+let notFarthest = 0;
+for (let k = 1; k <= 30; k++) {
+  const w = buildWorld([{ id: k, effects: [{ type: 'maze.size', value: 15 }] }]);
+  const dd = {}; const q2 = [[1, 1]]; dd['1,1'] = 0;
+  for (let i = 0; i < q2.length; i++) { const [x, y] = q2[i]; for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+    const nx = x + dx, ny = y + dy, key = `${nx},${ny}`; if (w.grid[ny]?.[nx] === 0 && dd[key] === undefined) { dd[key] = dd[`${x},${y}`] + 1; q2.push([nx, ny]); } } }
+  const ds = Object.values(dd).filter((v) => v > 0).sort((a, b) => b - a);
+  const e = dd[`${w.exit.x},${w.exit.y}`];
+  if (!(e >= ds[Math.max(0, Math.ceil(ds.length * 0.3) - 1)])) { check(false, `출구가 먼 쪽 30% 안에 있다 (방 ${k})`); break; }
+  if (e < ds[0]) notFarthest++;
+}
+check(notFarthest > 5, '출구가 늘 가장 먼 칸에 있지는 않다');
 
 const crowd = buildWorld([{ id: 1, effects: Array.from({ length: 30 }, (_, i) => ({ type: 'object.spawn', name: `e${i}`, where: 'entrance', count: 5 })) }]);
 check(crowd.objects.length === 7, '빈 칸이 모자라면 놓을 수 있는 만큼만 (5×5 빈 방: 바닥 9 - 시작 - 출구)');
