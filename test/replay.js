@@ -175,19 +175,37 @@ const pw2 = buildWorld([{ id: 1, effects: [
 ] }]);
 check(pw2.rules.map((r) => r.target).join() === '칼', '주울 수 없는 것(지니고 들어오는 지도, 쓰임 없는 물체)의 줍기 규칙은 빠진다');
 
-// ── 출구: 먼 쪽 칸들 중 무작위 ──────────────────────────
-let notFarthest = 0;
-for (let k = 1; k <= 30; k++) {
-  const w = buildWorld([{ id: k, effects: [{ type: 'maze.size', value: 15 }] }]);
+// ── 출구: 10칸 이하는 먼 쪽 30%, 10칸 넘으면 중간(35~60%) ──
+// 큰 미로에서 가장 먼 구석까지 걷게 하면 지루하기만 하다는 방명록 반영.
+function exitDistanceRatio(w) {
   const dd = {}; const q2 = [[1, 1]]; dd['1,1'] = 0;
   for (let i = 0; i < q2.length; i++) { const [x, y] = q2[i]; for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
     const nx = x + dx, ny = y + dy, key = `${nx},${ny}`; if (w.grid[ny]?.[nx] === 0 && dd[key] === undefined) { dd[key] = dd[`${x},${y}`] + 1; q2.push([nx, ny]); } } }
   const ds = Object.values(dd).filter((v) => v > 0).sort((a, b) => b - a);
   const e = dd[`${w.exit.x},${w.exit.y}`];
-  if (!(e >= ds[Math.max(0, Math.ceil(ds.length * 0.3) - 1)])) { check(false, `출구가 먼 쪽 30% 안에 있다 (방 ${k})`); break; }
+  return { e, ds, farBound: ds[Math.max(0, Math.ceil(ds.length * 0.3) - 1)] };
+}
+
+let notFarthest = 0;
+for (let k = 1; k <= 30; k++) {
+  const w = buildWorld([{ id: k, effects: [{ type: 'maze.size', value: 9 }] }]);
+  const { e, ds, farBound } = exitDistanceRatio(w);
+  if (!(e >= farBound)) { check(false, `10칸 이하는 출구가 먼 쪽 30% 안에 있다 (방 ${k})`); break; }
   if (e < ds[0]) notFarthest++;
 }
-check(notFarthest > 5, '출구가 늘 가장 먼 칸에 있지는 않다');
+check(notFarthest > 5, '10칸 이하는 출구가 늘 가장 먼 칸에 있지는 않다');
+
+// 10칸을 넘으면 중간쯤(35~60% 밴드)에 있어야 하고, 가장 먼 칸이어서는 안 된다.
+let midBandOk = true, everFarthest = false;
+for (let k = 1; k <= 20; k++) {
+  const w = buildWorld([{ id: k, effects: [{ type: 'maze.size', value: 15 }] }]);
+  const { e, ds } = exitDistanceRatio(w);
+  const rank = ds.indexOf(e) / (ds.length - 1);   // 0 = 가장 먼 칸, 1 = 가장 가까운 칸
+  if (rank < 0.30 || rank > 0.70) midBandOk = false;
+  if (e === ds[0]) everFarthest = true;
+}
+check(midBandOk, '10칸 넘는 미로는 출구가 중간쯤에 있다');
+check(!everFarthest, '10칸 넘는 미로는 출구가 가장 먼 칸이 되지 않는다');
 
 const crowd = buildWorld([{ id: 1, effects: Array.from({ length: 30 }, (_, i) => ({ type: 'object.spawn', name: `e${i}`, where: 'entrance', count: 5 })) }]);
 check(crowd.objects.length === 7, '빈 칸이 모자라면 놓을 수 있는 만큼만 (5×5 빈 방: 바닥 9 - 시작 - 출구)');
