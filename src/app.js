@@ -154,14 +154,41 @@ async function judgeAndSave(text, user) {
   return { entry, verdict, next };
 }
 
+// 사람이 3~6자리를 눌러 넣는 데 걸리는 시간보다 짧게 두면 사람에게는 안 걸리고,
+// 스크립트로 찔러 미로를 걷지 않고 번호를 맞히는 것만 막는다. 3자리(729가지)를
+// 이 간격으로 전부 시도하면 최소 18분이 걸린다 — 방을 뒤지는 것보다 느리다.
+const UNLOCK_COOLDOWN_MS = 1500;
+
 async function unlockRun(request, id, user) {
   const run = await q.runById.get(Number(id));
   if (!run || run.user_id !== user.id) return json({ error: '그런 기록이 없습니다.' }, 404);
   if (!isOpen(run)) return json({ error: '이미 끝난 기록입니다.' }, 409);
+
+  const now = Date.now();
+  if (run.last_unlock_at && now - run.last_unlock_at < UNLOCK_COOLDOWN_MS) {
+    // 게임 안의 목소리로 거절한다. "너무 빠르다"는 말을 서버가 하지 않는다.
+    return json({ ok: false, wait: true });
+  }
+  await q.touchUnlock.run(now, run.id);
+
   const { code } = await request.json().catch(() => ({}));
   const real = (await q.roomGet.get('lock'))?.value || '';
-  const ok = typeof code === 'string' && code.length === real.length && code === real;
+  // real 이 빈 문자열이면(자물쇠가 아예 없으면) 빈 code 도 길이가 맞아 통과해 버린다.
+  // 실제로 닿을 일은 없다 — 클라이언트는 lock 이 있는 방에서만 번호판을 띄운다 —
+  // 이건 API 를 직접 찌를 때를 막는 방어선이다.
+  const ok = typeof code === 'string' && code.length > 0 && real.length > 0
+    && code.length === real.length && (await constantTimeEqual(code, real));
   return json({ ok });
+}
+
+/** 타이밍으로 한 자리씩 새어 나가지 않게. 길이가 같다고 이미 확인한 뒤에 쓴다. */
+async function constantTimeEqual(a, b) {
+  const enc = new TextEncoder();
+  const [ha, hb] = await Promise.all([crypto.subtle.digest('SHA-256', enc.encode(a)), crypto.subtle.digest('SHA-256', enc.encode(b))]);
+  const [xa, xb] = [new Uint8Array(ha), new Uint8Array(hb)];
+  let diff = 0;
+  for (let i = 0; i < xa.length; i++) diff |= xa[i] ^ xb[i];
+  return diff === 0;
 }
 
 // ── 출구 자물쇠 ─────────────────────────────────────────────

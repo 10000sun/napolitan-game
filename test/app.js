@@ -93,6 +93,30 @@ check(r.status === 200 && (await q.assetByKey.get('녹슨 손'))?.status === 'fa
 r = await post('/api/run/start', { cookie: A });
 check(r.body.world.objects.some((o) => o.img === mask.file), '다음 판의 물체에 모습이 붙는다');
 
+// ── 출구 자물쇠 ───────────────────────────────────────────
+const run3 = r.body.runId;
+
+// 자물쇠가 아예 없을 때(room 표에 값이 없을 때) 빈 코드로 우회할 수 없어야 한다.
+// 이건 room 에 lock 값을 넣기 전인 지금만 확인할 수 있다.
+// (A 는 run3 가 아직 열려 있어 연달아 입장이 막히니 B 로 확인한다.)
+const bare = await post('/api/run/start', { cookie: B });
+check((await post(`/api/run/${bare.body.runId}/unlock`, { cookie: B, body: { code: '' } })).body.ok !== true,
+  '자물쇠가 없는 방에서 빈 코드로 우회할 수 없다');
+
+await q.roomSet.run('lock', '714');
+check((await post(`/api/run/${run3}/unlock`, { cookie: A, body: { code: '000' } })).body.ok === false, '틀린 번호는 거절');
+check((await post(`/api/run/${run3}/unlock`, { cookie: B, body: { code: '714' } })).status === 404, '남의 런은 건드릴 수 없다');
+// 위 시도들이 쿨다운을 이미 소모했으니, 이번 확인은 그 쿨다운이 끝난 뒤로 본다
+await store.run('UPDATE runs SET last_unlock_at = 0 WHERE id = ?', [run3]);
+const first = await post(`/api/run/${run3}/unlock`, { cookie: A, body: { code: '714' } });
+check(first.body.ok === true, '맞는 번호는 통과');
+// 곧바로 다시 두드리면(스크립트 브루트포스) 검증 자체를 하지 않고 물러선다
+const again = await post(`/api/run/${run3}/unlock`, { cookie: A, body: { code: '714' } });
+check(again.body.wait === true && again.body.ok !== true, '너무 빠르게 다시 두드리면 판정 없이 물러선다');
+await store.run('UPDATE runs SET last_unlock_at = 0 WHERE id = ?', [run3]);
+check((await post(`/api/run/${run3}/unlock`, { cookie: A, body: { code: '714' } })).body.ok === true, '간격이 지나면 다시 판정한다');
+check((await post('/api/run/999999/unlock', { cookie: A, body: { code: '714' } })).status === 404, '없는 런은 404');
+
 // ── 죽음 ────────────────────────────────────────────────
 check((await post(`/api/run/${r.body.runId}/die`, { cookie: A, body: { x: 1.5, y: 1.5 } })).status === 200, '죽는다');
 check(JSON.stringify((await get('/api/me', { cookie: A })).body.lostParts) === '[]', '죽으면 몸은 새것');
@@ -113,7 +137,7 @@ check((await post('/api/admin/reset', { body: { t: mk({ id: '1', n: 'x', e: soon
 check((await post('/api/admin/reset', { body: { t: mk({ id: '1', n: 'x', e: soon - 120, a: 'reset' }) } })).status === 403, '만료된 초기화 표는 거절');
 check((await call(`/enter?u=${RESET}`)).status === 403, '초기화 표로는 입장하지 못한다');
 r = await post('/api/admin/reset', { body: { t: RESET } });
-check(r.status === 200 && r.body.entries === 2 && r.body.runs === 3, '초기화하면 지운 글·판 수를 알려준다');
+check(r.status === 200 && r.body.entries === 2 && r.body.runs === 4, '초기화하면 지운 글·판 수를 알려준다');
 const afterBook = await get('/api/guestbook', { cookie: B });
 const afterMe = (await get('/api/me', { cookie: A })).body;
 check(afterBook.body.entries.length === 0 && afterBook.body.pendingWrite === null, '방명록이 비고 쓸 자격도 사라진다');

@@ -38,6 +38,7 @@ export function queries(store) {
     INSERT INTO runs (user_id, seed, rule_count, started_at) VALUES (?, ?, ?, ?) RETURNING *`),
     runById: stmt('SELECT * FROM runs WHERE id = ?'),
     clearRun: stmt('UPDATE runs SET cleared_at = ? WHERE id = ? AND cleared_at IS NULL'),
+    touchUnlock: stmt('UPDATE runs SET last_unlock_at = ? WHERE id = ?'),
     dieRun: stmt(`
     UPDATE runs SET died_at = ?, death_x = ?, death_y = ?, death_parts = ?
     WHERE id = ? AND cleared_at IS NULL AND died_at IS NULL`),
