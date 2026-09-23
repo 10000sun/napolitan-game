@@ -811,7 +811,7 @@ export class Game {
 
   scareLie() {
     this.lieUntil = this.turn + 1;
-    this.audio.blip(140, 0.18, 'sine', 0.05);
+    if (!this.fx.has('deaf')) this.audio.blip(140, 0.18, 'sine', 0.05);
     this.pushState();
   }
 
