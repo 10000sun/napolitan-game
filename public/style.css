@@ -70,6 +70,12 @@ code, .mono { font-family: 'Nanum Gothic Coding', monospace; }
     linear-gradient(180deg, rgba(10,12,14,.22), transparent 30%, transparent 72%, rgba(8,7,6,.3));
 }
 
+/* mix-blend-mode 는 그 아래가 바뀔 때마다 다시 섞어야 해서(단순 알파 겹침보다 훨씬
+   비싸다), 1인칭 화면처럼 캔버스가 초당 60번 다시 그려지는 곳에 얹으면 그때마다
+   그레인까지 매번 다시 섞는 셈이라 저사양 폰에서 체감 프레임이 뚝 떨어진다.
+   캔버스 자체가 이미 안개·질감으로 덮여 있어 여기서 그레인이 빠져도 표는 잘 안 난다. */
+#game.active ~ .grain { display: none; }
+
 @media (prefers-reduced-motion: reduce) {
   .grain { animation: none; }
   * { transition: none !important; }

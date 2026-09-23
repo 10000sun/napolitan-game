@@ -255,12 +255,16 @@ export class Game {
     this.lastT = performance.now();
     const loop = (t) => {
       this.raf = requestAnimationFrame(loop);
-      const dt = Math.min(0.05, (t - this.lastT) / 1000);
+      const rawDt = (t - this.lastT) / 1000;
+      const dt = Math.min(0.05, rawDt);
       this.lastT = t;
       this.stepCamera(dt);
       // 느리면 해상도를 한 단계 내린다. 올리지는 않는다.
       // 텍스처를 만드는 동안의 끊김은 느린 기기로 오판하지 않도록 텍스처가 온 뒤부터 잰다.
-      if (this.tex) this.frameMs.push(dt * 1000);
+      // 카메라용 dt(위)는 순간이동을 막으려 50ms 로 묶지만, 느린 정도를 재는 값까지
+      // 그렇게 묶으면 정말 느린 기기도 언제나 "딱 50ms" 로만 보여 낮춰야 할 정도를 알 수 없다.
+      // (탭을 며칠 띄워 뒀다 돌아온 경우처럼 극단적인 값만 500ms 로 묶는다.)
+      if (this.tex) this.frameMs.push(Math.min(rawDt, 0.5) * 1000);
       if (this.frameMs.length >= 30) {
         const avg = this.frameMs.reduce((a, b) => a + b, 0) / this.frameMs.length;
         this.frameMs = [];
