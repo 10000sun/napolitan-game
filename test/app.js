@@ -134,7 +134,12 @@ check((await post(`/api/run/${run3}/unlock`, { cookie: A, body: { code: '714' } 
 check((await post('/api/run/999999/unlock', { cookie: A, body: { code: '714' } })).status === 404, '없는 런은 404');
 
 // ── 죽음 ────────────────────────────────────────────────
-check((await post(`/api/run/${r.body.runId}/die`, { cookie: A, body: { x: 1.5, y: 1.5 } })).status === 200, '죽는다');
+check((await post(`/api/run/${r.body.runId}/die`, {
+  cookie: A, body: { x: 1, y: 1, lostParts: ['왼쪽 새끼손가락', '오른쪽 다리', '날개'] },
+})).status === 200, '죽는다');
+const deaths = await q.recentDeaths.all();
+check(JSON.parse(deaths[0]?.parts || '[]').sort().join() === '오른쪽 다리,왼쪽 새끼손가락',
+  '이 판에서 잃은 부위(모르는 이름은 걸러) 그대로 시체에 남는다 — 이 판 시작 때의 몸(bodyOf)이 아니라');
 check(JSON.stringify((await get('/api/me', { cookie: A })).body.lostParts) === '[]', '죽으면 몸은 새것');
 check((await post(`/api/run/${r.body.runId}/die`, { cookie: A, body: {} })).status === 409, '두 번 죽지 않는다');
 check((await post(`/api/run/${run2}/die`, { cookie: A, body: {} })).status === 404, '남의 판은 없는 판');

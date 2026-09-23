@@ -11,6 +11,7 @@ import { compileEntry, offlineFallback } from './compiler.js';
 import { isConfigured } from './llm.js';
 import { foldEffects, normalizeObject, normalizeSurface } from './effects.js';
 import { canEnter, bodyOf, saveBodyOnClear, resetBody, isOpen, hasReadBook, markBookRead } from './runs.js';
+import { sanitizeParts } from '../public/body.js';
 import { resolveAsset, imgFor, getImage, ITEM_ASSETS } from './assets.js';
 
 const MAX_BODY = 32 * 1024;
@@ -269,8 +270,9 @@ async function dieRun(request, id, user) {
   // 그 런이 걷던 미로 크기 안의 칸만 믿는다.
   const size = foldEffects((await loadAppliedRules()).slice(0, run.rule_count).map((r) => r.effects)).mazeSize;
   const cell = deathCell(body, size);
-  // 죽을 때의 몸을 함께 남긴다. 다리가 없던 사람은 다리 없는 시체로 남는다.
-  const lost = await bodyOf(user.id);
+  // 죽을 때의 몸을 함께 남긴다. bodyOf() 는 이 판을 시작할 때의 몸이라 이 판에서
+  // 잃은 것은 담지 못한다 — 클라이언트가 갖고 있는 지금 몸(allLost)을 받는다.
+  const lost = sanitizeParts(body.lostParts);
   await q.dieRun.run(Date.now(), cell?.x ?? null, cell?.y ?? null, JSON.stringify(lost), run.id);
   await resetBody(user.id);
   return json({ ok: true });
