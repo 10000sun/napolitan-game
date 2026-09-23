@@ -1057,6 +1057,7 @@ export class Game {
     // 요구하는 부위를 이미 잃었으면 영영 열리지 않는다. 다 잘려도 마찬가지다.
     if (!part) { this.log('더 내려놓을 것이 없다. 문은 열리지 않는다.', 'bad'); return; }
     this.lostParts.push(part);
+    if (this.fx.has('deaf')) this.audio.muted = true;
 
     if (part === this.w.demandedPart) {
       this.log(`${part}을(를) 내려놓았다. 문이 열린다.`);
@@ -1068,7 +1069,6 @@ export class Game {
     } else {
       this.damage(severityOf(part), `${part}을(를) 잘라 내려놓았다. 문은 열리지 않는다.`);
     }
-    if (this.fx.has('deaf')) this.audio.muted = true;
   }
 
   /** 번호판 결과. 서버가 맞다고 해야 열린다. */
