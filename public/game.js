@@ -141,6 +141,11 @@ export class Game {
 
     this.grid = world.grid.map((r) => r.slice());
     this.size = world.size;
+    // 칸마다 형광등 타일은 좌표만으로 정해져 바뀌지 않는다(미로가 움직여도).
+    // render() 가 천장 픽셀마다 다시 해시를 돌리면 화면 절반 픽셀 수만큼
+    // 매 프레임 반복하는 셈이라 한 번만 구해 둔다.
+    this.lightMap = new Int8Array(this.size * this.size);
+    for (let y = 0; y < this.size; y++) for (let x = 0; x < this.size; x++) this.lightMap[y * this.size + x] = lightTile(x, y);
 
     // 칸 단위 위치 + 바라보는 방향
     this.cx = Math.floor(world.spawn.x);
@@ -1424,7 +1429,8 @@ export class Game {
           put((y * rw + x) * 4, r, g, b, fog, light);
           if (yc >= 0) {
             // 형광등은 칸의 타일 한 장에만. 그 타일 안에서 패널 텍스처를 한 장 그대로 편다.
-            const lit = lightTile(cx, cy) === (lu >= 0.5 ? 1 : 0) + (lv >= 0.5 ? 2 : 0);
+            const tile = (cx >= 0 && cy >= 0 && cx < size && cy < size) ? this.lightMap[cy * size + cx] : -1;
+            const lit = tile === (lu >= 0.5 ? 1 : 0) + (lv >= 0.5 ? 2 : 0);
             if (lit) {
               const li = ((((lv * 2 % 1) * TEX) | 0) * TEX + (((lu * 2 % 1) * TEX) | 0)) * 4;
               put((yc * rw + x) * 4, T.light[li], T.light[li + 1], T.light[li + 2], fog * 0.4, light);   // 안개를 덜 탄다
