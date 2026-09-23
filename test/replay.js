@@ -175,6 +175,20 @@ const pw2 = buildWorld([{ id: 1, effects: [
 ] }]);
 check(pw2.rules.map((r) => r.target).join() === '칼', '주울 수 없는 것(지니고 들어오는 지도, 쓰임 없는 물체)의 줍기 규칙은 빠진다');
 
+// ── 이스터에그(random)는 요소당 한 번뿐 ────────────────────
+// 모델이 once 를 빠뜨려도(=반복해서 눌러 파밍하지 못하게) 코드가 못박는다.
+const egg = buildWorld([{ id: 1, effects: [
+  { type: 'object.spawn', name: '거울', emoji: '🪞' },
+  { type: 'rule.when', on: 'act', target: '거울', verb: '건드린다', do: [{ act: 'random' }] },
+] }]);
+check(egg.rules[0]?.once === true, '이스터에그는 once 를 적지 않아도 한 번으로 못박힌다');
+
+const notEgg = buildWorld([{ id: 1, effects: [
+  { type: 'object.spawn', name: '종', emoji: '🔔' },
+  { type: 'rule.when', on: 'act', target: '종', verb: '울린다', do: [{ act: 'say', text: 'x' }] },
+] }]);
+check(notEgg.rules[0]?.once === false, '이스터에그가 아닌 규칙은 once 를 강제하지 않는다');
+
 // ── 출구: 10칸 이하는 먼 쪽 30%, 10칸 넘으면 중간(35~60%) ──
 // 큰 미로에서 가장 먼 구석까지 걷게 하면 지루하기만 하다는 방명록 반영.
 function exitDistanceRatio(w) {

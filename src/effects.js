@@ -357,7 +357,9 @@ export function normalizeRule(e) {
     verb: on === 'act' ? (String(e.verb ?? '').trim().slice(0, 20) || '만진다') : null,
     n: on === 'every' ? clamp(e.n ?? 5, 1, 50) : on === 'hurt' ? clamp(e.n ?? 30, 1, 99) : null,
     chance: Math.max(0.05, Math.min(1, Number(e.chance ?? 1) || 0)),
-    once: e.once === true || String(e.once).toLowerCase() === 'true',
+    // 이스터에그(random)는 모델이 무엇을 적었든 요소당 한 번만 일어난다.
+    // 반복해서 눌러 무한히 파밍하지 못하게, 판정에 기대지 않고 여기서 못박는다.
+    once: actions.some((a) => a.act === 'random') || e.once === true || String(e.once).toLowerCase() === 'true',
     do: actions,
   };
 }

@@ -721,10 +721,26 @@ export class Game {
   }
 
   /**
-   * 무엇이 나올지 모르는 한 번. 이스터에그를 눌렀을 때 쓴다.
+   * 무엇이 나올지 모르는 한 번. 이스터에그를 눌렀을 때 쓴다. 요소당 한 번뿐이다
+   * (normalizeRule 이 random 을 무조건 once 로 못박는다) — 반복해서 눌러 파밍할
+   * 수는 없다.
+   *
+   * 1/3 은 아무것도 바꾸지 않고 의미심장한 문장 한 줄만 남긴다. 눌렀는데 아무
+   * 효과가 없어야 "정말 아무 일도 없었나, 아니면 못 본 무언가가 있었나" 하는
+   * 여운이 남는다. 나머지 2/3 에서만 실제 효과가 걸린다.
    * 출구로 보내는 순간이동은 넣지 않는다 — 누르기만 하면 이기는 건 게임이 아니다.
    */
   rollRandom() {
+    if (Math.random() < 1 / 3) {
+      const lines = [
+        '아무 일도 일어나지 않았다. 아마도.',
+        '손끝이 잠깐 차가워졌다가 만다.',
+        '저 멀리서 무언가 웃는 소리가 난 것 같기도 하다.',
+        '방금 무언가 스쳐 지나갔다. 돌아봐도 아무것도 없다.',
+        '아무 일도 일어나지 않았다. 그런데 방금 그건 뭐였을까.',
+      ];
+      return { act: 'say', text: lines[Math.floor(Math.random() * lines.length)] };
+    }
     const pool = [
       { act: 'scare' },
       { act: 'monster', do: 'spawn', count: 1 },
@@ -739,8 +755,6 @@ export class Game {
       { act: 'reveal', turns: 4 },
       { act: 'teleport', to: 'random' },
       { act: 'sound', kind: 'whisper' },
-      { act: 'say', text: '아무 일도 일어나지 않았다.' },
-      { act: 'say', text: '손끝이 잠깐 차가워졌다가 만다.' },
     ];
     return pool[Math.floor(Math.random() * pool.length)];
   }
@@ -1513,7 +1527,7 @@ export class Game {
       if (m.alive) out.push({ kind: 'monster', ref: look ? { ...look, id: 'monster' } : null, x: m.x + 0.5, y: m.y + 0.5, h: 1.05, w: 0.75 });
     }
     for (const c of this.corpses) {
-      if (!c.taken) out.push({ kind: 'corpse', parts: c.parts, x: c.x + 0.5, y: c.y + 0.5, h: 0.42, w: 1.12, ground: true });
+      if (!c.taken) out.push({ kind: 'corpse', ref: c.parts ? { parts: c.parts } : null, x: c.x + 0.5, y: c.y + 0.5, h: 0.42, w: 1.12, ground: true });
     }
     for (const b of this.baits) {
       out.push({ kind: 'corpse', x: b.x + 0.5, y: b.y + 0.5, h: 0.42, w: 1.12, ground: true });
@@ -1866,7 +1880,7 @@ export class Game {
       c.lineJoin = 'round';
 
       // 이 사람이 잃은 채로 죽었다면 시체에도 없다.
-      const gone = new Set(sprite.parts || []);
+      const gone = new Set(ref?.parts || []);
       const noLeg = gone.has('오른쪽 다리');
       const shortLeg = gone.has('왼쪽 발목');
       const noArm = gone.has('오른쪽 팔');
