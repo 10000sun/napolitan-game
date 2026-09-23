@@ -31,8 +31,11 @@
 html, body { height: 100%; overflow: hidden; }
 
 /* 두 번 탭해서 확대되는 것을 막는다. 손가락 두 개로 벌리는 확대는 남겨 둔다 —
-   글씨가 작아 못 읽는 사람에게서 그것까지 뺏을 이유는 없다. */
-body { touch-action: manipulation; }
+   글씨가 작아 못 읽는 사람에게서 그것까지 뺏을 이유는 없다.
+   body 하나에만 걸면 사파리 계열 일부는 실제로 손가락이 닿은 그 요소에
+   이 값이 없으면 조상의 값을 따르지 않고 그냥 확대해 버린다 — 모든 요소에
+   직접 건다 (패닝·스크롤은 manipulation 이 그대로 허용해서 안 막힌다). */
+html, * { touch-action: manipulation; }
 .btn, .choice, .quit, .key-btn { touch-action: manipulation; -webkit-tap-highlight-color: transparent; user-select: none; }
 
 body {
