@@ -4,7 +4,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import { q, loadAppliedRules } from './db.js';
-import { currentUser, sessionCookie, clearCookie } from './auth.js';
+import { currentUser, guestUser, sessionCookie, clearCookie } from './auth.js';
 import { verifyLink } from './link.js';
 import { buildWorld, deathCell } from './world.js';
 import { compileEntry, offlineFallback } from './compiler.js';
@@ -35,10 +35,17 @@ const DENIED = '<!doctype html><meta charset="utf-8"><title>문이 열리지 않
   + '<body style="background:#0b0a08;color:#d8cfb8;font-family:serif;display:grid;place-items:center;height:100vh;margin:0">'
   + '<p>링크가 낡았거나 잘못됐다. 디스코드에서 다시 받아 오자.</p></body>';
 
-const NEEDS_LOGIN = '문 밖에 서 있습니다. 로그인이 필요합니다.';
+/** 이미 만들어진 Response 에 헤더 하나를 더 붙인다. 본문·상태는 그대로. */
+function withHeader(res, name, value) {
+  const headers = new Headers(res.headers);
+  headers.append(name, value);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
 
 // ── 인증 ────────────────────────────────────────────────────
-// 디스코드에서 마리가 준 링크로만 들어온다. 서버 멤버만 마리 명령을 쓸 수 있으니 그게 곧 문지기다.
+// 마리 링크로 오면 그 디스코드 신분으로 들어온다. 그냥 온 사람은
+// handle() 이 곧장 손님으로 들여보낸다 — 디스코드가 문지기였던 건 없앴다.
+// 링크는 여전히 발급되고 여전히 통한다. 다만 그것만이 유일한 문이 아니다.
 async function enter(url) {
   const headers = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' }; // 표가 붙은 주소가 어디에도 새지 않게
   const who = verifyLink(url.searchParams.get('u') || '', process.env.MARI_LINK_SECRET);
@@ -307,18 +314,25 @@ export async function handle(request) {
     if (!p.startsWith('/api/')) return null;
     if (p === '/api/admin/reset' && method === 'POST') return await resetBook(request);
 
-    const user = await currentUser(request.headers.get('Cookie'));
-    if (p === '/api/me' && method === 'GET') return await me(user);
-    if (p === '/api/guestbook' && method === 'GET') return await readBook(user);
+    let user = await currentUser(request.headers.get('Cookie'));
+    // 세션이 없으면(마리 링크로도, 이전 방문으로도) 곧장 손님으로 들여보낸다.
+    // 응답에 쿠키를 함께 실어야 다음 요청부터 같은 사람으로 남는다.
+    let guestCookie = null;
+    if (!user) {
+      user = await guestUser();
+      guestCookie = sessionCookie(user, url.protocol === 'https:');
+    }
+    const attach = (res) => (guestCookie ? withHeader(res, 'Set-Cookie', guestCookie) : res);
 
-    const writes = p === '/api/guestbook' || p.startsWith('/api/run/');
-    if (writes && method === 'POST' && !user) return json({ error: NEEDS_LOGIN }, 401);
-    if (p === '/api/guestbook' && method === 'POST') return await writeBook(request, user);
-    if (p === '/api/run/start' && method === 'POST') return await startRun(user);
+    if (p === '/api/me' && method === 'GET') return attach(await me(user));
+    if (p === '/api/guestbook' && method === 'GET') return attach(await readBook(user));
+
+    if (p === '/api/guestbook' && method === 'POST') return attach(await writeBook(request, user));
+    if (p === '/api/run/start' && method === 'POST') return attach(await startRun(user));
     const u = /^\/api\/run\/(\d+)\/unlock$/.exec(p);
-    if (u && method === 'POST') return await unlockRun(request, u[1], user);
+    if (u && method === 'POST') return attach(await unlockRun(request, u[1], user));
     const m = /^\/api\/run\/(\d+)\/(clear|die)$/.exec(p);
-    if (m && method === 'POST') return await (m[2] === 'clear' ? clearRun(request, m[1], user) : dieRun(request, m[1], user));
+    if (m && method === 'POST') return attach(await (m[2] === 'clear' ? clearRun(request, m[1], user) : dieRun(request, m[1], user)));
     return json({ error: '없는 길입니다.' }, 404);
   } catch (e) {
     if (e instanceof HttpError) return json({ error: e.message }, e.status);

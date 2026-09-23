@@ -41,9 +41,25 @@ const post = (path, opts = {}) => get(path, { ...opts, method: 'POST' });
 const backdate = (runId) => store.run('UPDATE runs SET started_at = started_at - 5000 WHERE id = ?', [runId]);
 
 // ── 로그인 ──────────────────────────────────────────────
-check((await get('/api/me')).body.user === null, '쿠키가 없으면 로그인 안 됨');
-check((await get('/api/me', { cookie: 'nps=abc.def' })).body.user === null, '망가진 쿠키도 에러 없이 로그인 안 됨');
+// 디스코드가 문지기였던 건 없앴다. 쿠키가 없거나 망가졌어도 곧장 손님으로
+// 들어오고, 응답에 새 쿠키가 실려 다음부터는 같은 손님으로 남는다.
+const noCookie = await call('/api/me');
+check((await noCookie.json()).user?.username?.startsWith('손님-'), '쿠키가 없으면 곧장 손님으로 들어온다');
+check(!!noCookie.headers.get('Set-Cookie'), '그 자리에서 쿠키를 내려준다');
+const brokenCookie = await call('/api/me', { cookie: 'nps=abc.def' });
+check((await brokenCookie.json()).user?.username?.startsWith('손님-'), '망가진 쿠키도 에러 없이 손님으로 들어온다');
+check(!!brokenCookie.headers.get('Set-Cookie'), '망가진 쿠키도 새 쿠키로 갈아 끼운다');
 check((await call('/enter?u=nope')).status === 403, '잘못된 표는 403');
+
+// 마리 링크를 한 번도 거치지 않고 끝까지 — 손님도 진짜로 플레이할 수 있어야 한다.
+const guestCookie = (noCookie.headers.get('Set-Cookie') || '').split(';')[0];
+check((await get('/api/guestbook', { cookie: guestCookie })).status === 200, '손님도 공책을 읽는다');
+const gr = await post('/api/run/start', { cookie: guestCookie });
+check(gr.status === 200 && !!gr.body.runId, '손님도 마리 링크 없이 곧장 들어간다');
+await backdate(gr.body.runId);
+check((await post(`/api/run/${gr.body.runId}/clear`, { cookie: guestCookie, body: { lostParts: [] } })).status === 200, '손님도 나올 수 있다');
+say = { verdict: 'flavor_only', reason: '그저 받아 적었다.', effects: [] };
+check((await post('/api/guestbook', { cookie: guestCookie, body: { text: '손님도 적어 본다' } })).status === 200, '손님도 방명록에 적을 수 있다');
 
 const GOLDEN = 'eyJpZCI6IjEyMzQ1Njc4OTAxMjM0NTY3OCIsIm4iOiLrp4jrpqwg7YWM7Iqk7Yq4IiwiZSI6MjAwMDAwMDAwMH0.Nd31-9GN_dViZPQbr3_gLJIDZUXbRp5hunFdtquovgg';
 const entered = await call(`/enter?u=${GOLDEN}`);
@@ -137,7 +153,7 @@ check((await post('/api/admin/reset', { body: { t: mk({ id: '1', n: 'x', e: soon
 check((await post('/api/admin/reset', { body: { t: mk({ id: '1', n: 'x', e: soon - 120, a: 'reset' }) } })).status === 403, '만료된 초기화 표는 거절');
 check((await call(`/enter?u=${RESET}`)).status === 403, '초기화 표로는 입장하지 못한다');
 r = await post('/api/admin/reset', { body: { t: RESET } });
-check(r.status === 200 && r.body.entries === 2 && r.body.runs === 4, '초기화하면 지운 글·판 수를 알려준다');
+check(r.status === 200 && r.body.entries === 3 && r.body.runs === 5, '초기화하면 지운 글·판 수를 알려준다');
 const afterBook = await get('/api/guestbook', { cookie: B });
 const afterMe = (await get('/api/me', { cookie: A })).body;
 check(afterBook.body.entries.length === 0 && afterBook.body.pendingWrite === null, '방명록이 비고 쓸 자격도 사라진다');
@@ -177,7 +193,9 @@ check((await post('/api/guestbook', { cookie: loser.cookie, body: { text: '다�
 check((await get('/api/guestbook')).body.entries.length === 2, '결국 두 줄 다 남는다');
 
 // ── 경계 ────────────────────────────────────────────────
-check((await post('/api/guestbook', { body: { text: 'x' } })).status === 401, '로그인 없이 기입 401');
+// 쿠키 없이 와도 곧장 손님으로 들어오지만, 그 손님은 아직 아무것도 빠져나온 적이
+// 없으니 기입 자격은 없다 — "로그인이 안 됐다" 가 아니라 "아직 자격이 없다" 다.
+check((await post('/api/guestbook', { body: { text: 'x' } })).status === 403, '쿠키 없이 와도 손님으로 들어오지만 기입 자격은 없다');
 check((await post('/api/guestbook', { cookie: A, body: JSON.stringify({ text: 'x'.repeat(40_000) }) })).status === 413, '32KB 넘는 본문은 413');
 check((await post('/api/guestbook', { cookie: A, body: '{깨짐' })).status === 400, '읽을 수 없는 본문은 400');
 check((await call('/obj/..%2Fx')).status === 404 && (await call('/obj/0000000000000000.png')).status === 404, '/obj 이상한 이름·없는 파일은 404');

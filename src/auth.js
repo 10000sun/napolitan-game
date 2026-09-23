@@ -1,4 +1,5 @@
-// 세션 쿠키. 입장은 마리 링크(src/link.js)로만 한다.
+// 세션 쿠키. 마리 링크(src/link.js)로 들어오면 그 신분을 쓰고, 그냥 온
+// 사람은 손님으로 곧장 들어온다 — 디스코드가 문지기였던 건 없앴다.
 import crypto from 'node:crypto';
 import { q } from './db.js';
 
@@ -36,4 +37,15 @@ export async function currentUser(cookieHeader) {
   const token = /(?:^|;\s*)nps=([^;]*)/.exec(cookieHeader || '')?.[1];
   const s = verify(token);
   return s ? q.userById.get(s.uid) : null;
+}
+
+/**
+ * 마리 링크 없이 그냥 들어온 사람. 디스코드 없이도 곧장 손님으로 입장한다.
+ * discord_id 는 실제 디스코드 ID(숫자만, link.js 참고)와 절대 겹치지 않게
+ * "guest:" 를 붙인다. 쿠키가 곧 그 사람의 신분증이다 — 브라우저마다 다른
+ * 손님이 되고, 같은 브라우저로 다시 오면 같은 손님으로 남는다.
+ */
+export async function guestUser() {
+  const id = `guest:${crypto.randomUUID()}`;
+  return q.upsertUser.get(id, `손님-${id.slice(7, 11)}`, null, Date.now());
 }
