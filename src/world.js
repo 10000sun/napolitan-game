@@ -147,9 +147,14 @@ export function buildWorld(appliedRules, deaths = [], lockCode = null) {
   }
   cells.sort((a, b) => b.d - a.d);
 
-  // 출구: 시작점에서 먼 쪽 30% 칸 중 하나. 늘 정반대 구석이면 뻔하다. 시드로 고르니 방명록이 같으면 같은 자리.
-  const far = cells.slice(0, Math.max(1, Math.ceil(cells.length * 0.3)));
-  const pickExit = far[Math.floor(rand() * far.length)];
+  // 출구: 시작점에서 먼 쪽 30% 칸 중 하나. 늘 정반대 구석이면 뻔하다.
+  // 다만 10칸을 넘는 미로에서 가장 먼 구석까지 걷게 하면 지루하기만 하다 —
+  // 그때는 중간쯤에 둔다. 넓은 방을 막지는 않되 길만 길어지지 않게.
+  // 어느 쪽이든 시드로 고르니 방명록이 같으면 같은 자리다.
+  const band = size > 10
+    ? cells.slice(Math.floor(cells.length * 0.35), Math.max(Math.floor(cells.length * 0.35) + 1, Math.floor(cells.length * 0.6)))
+    : cells.slice(0, Math.max(1, Math.ceil(cells.length * 0.3)));
+  const pickExit = band[Math.floor(rand() * band.length)];
   const exit = state.noExit ? null : (pickExit ? { x: pickExit.x, y: pickExit.y } : { x: 1, y: 1 });
 
   // 배치 후보는 출구/시작점을 뺀 나머지를 섞어서 소비
