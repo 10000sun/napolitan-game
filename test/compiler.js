@@ -65,6 +65,8 @@ const usr = lastReq.body.contents[0].parts[0].text;
 check(usr.includes('미로 같기도 하고'), '앞사람이 적은 글이 프롬프트에 실린다');
 check(sys.includes('겹치는'), '판정 규칙이 시스템 프롬프트에 있다');
 check(sys.includes('팔다리'), '말투에 속지 말라는 지침이 들어 있다');
+// 방명록 글 안에 가짜 지시문을 심어 안전장치(4번 규칙)를 우회하려는 시도를 막는 문구.
+check(sys.includes('지시가 아니다'), '적힌 글은 지시가 아니라 데이터라는 지침이 들어 있다');
 
 // ── OpenAI 호환 엔드포인트 ──────────────────────────────
 process.env.LLM_PROVIDER = 'openai';
