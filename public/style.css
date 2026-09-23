@@ -266,13 +266,18 @@ code, .mono { font-family: 'Nanum Gothic Coding', monospace; }
 .hud b { color: var(--bone); font-weight: 700; font-variant-numeric: tabular-nums; }
 .hud .low { color: #d8543f; text-shadow: 0 0 12px rgba(216,84,63,.5); }
 
+/* 게임을 그만두는 자리. 정신없는 3D 화면 위라 잘 안 보인다는 말을 들었다.
+   눈에 띄되 진행 버튼처럼 누르고 싶어지진 않게 — 배경판을 깔고 대비를 올린다. */
 .quit {
   position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 3;
-  font-family: 'Nanum Gothic Coding', monospace; font-size: 11px; letter-spacing: .08em;
-  background: transparent; border: 0; color: var(--bone-far); padding: 6px 14px; cursor: pointer;
-  opacity: .5; transition: opacity .2s, color .2s;
+  font-family: 'Nanum Gothic Coding', monospace; font-size: 12px; letter-spacing: .06em;
+  background: rgba(8, 6, 5, .78); border: 0; color: var(--bone);
+  padding: 7px 16px; cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(216, 207, 184, .22), 0 3px 14px rgba(0,0,0,.5);
+  text-shadow: 0 1px 3px #000;
+  transition: box-shadow .15s, background .15s;
 }
-.quit:hover { opacity: 1; color: var(--bone-dim); }
+.quit:hover { background: rgba(20, 16, 13, .9); box-shadow: inset 0 0 0 1px rgba(216, 207, 184, .45), 0 3px 14px rgba(0,0,0,.5); }
 
 /* 아래쪽은 읽는 자리. 위로 갈수록 어둠에 녹아든다. */
 .panel {
