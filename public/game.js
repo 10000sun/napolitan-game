@@ -583,7 +583,7 @@ export class Game {
       this.log('칼을 주웠다. 손에 익는다.');
     } else if (it.kind === 'map') {
       this.mapKnown = true;
-      this.log('지도를 펼쳤다. 미로가 전부 드러났다.');
+      this.log('지도를 펼쳤다. 이곳의 모양이 전부 드러났다.');
     }
     const got = this.rules.pickup({ pistol: '권총', knife: '칼', map: '지도' }[it.kind]);
     if (got.length) this.doActions(got, undefined, true);
@@ -1092,7 +1092,7 @@ export class Game {
     }
     // 틀려도 체력은 깎지 않는다. 대신 소리가 난다 — 그 소리를 듣고 모인다.
     if (!this.fx.has('deaf')) this.audio.blip(150, 0.3, 'square', 0.09);
-    this.log('맞지 않는다. 헛도는 소리가 복도를 타고 퍼진다.', 'bad');
+    this.log('맞지 않는다. 헛도는 소리가 사방으로 퍼진다.', 'bad');
     this.baits.push({ x: this.cx, y: this.cy, life: 3 });
     this.endTurn();
     this.pushState();
@@ -1239,9 +1239,9 @@ export class Game {
       let n = 0;
       const [dx, dy] = DIRS[this.facing];
       while (n < 12 && !this.wall(this.cx + dx * (n + 1), this.cy + dy * (n + 1))) n++;
-      bits.push(blind ? '앞이 잘 보이지 않는다.' : n >= 5 ? '긴 복도가 어둠 속으로 이어진다.' : `${DIR_NAME[this.facing]}쪽으로 길이 이어진다.`);
+      bits.push(blind ? '앞이 잘 보이지 않는다.' : n >= 5 ? '긴 길이 어둠 속으로 이어진다.' : `${DIR_NAME[this.facing]}쪽으로 길이 이어진다.`);
       if (!blind && this.w.exit && this.cx + dx * n === this.w.exit.x && this.cy + dy * n === this.w.exit.y) {
-        bits.push('복도 끝에서 희미한 빛이 새어 나온다.');
+        bits.push('길 끝에서 희미한 빛이 새어 나온다.');
       }
     }
 
