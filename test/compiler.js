@@ -6,7 +6,7 @@ let FAKE = null;        // 모델이 뱉을 본문
 let lastReq = null;     // 마지막으로 나간 요청
 
 globalThis.fetch = async (url, opts) => {
-  lastReq = { url: String(url), headers: opts.headers, body: JSON.parse(opts.body) };
+  lastReq = { url: String(url), headers: opts.headers, body: JSON.parse(opts.body), signal: opts.signal };
   const body = process.env.LLM_PROVIDER === 'gemini'
     ? { candidates: [{ content: { parts: [{ text: FAKE }] } }] }
     : { choices: [{ message: { content: FAKE } }] };
@@ -78,6 +78,7 @@ check(r.effects[0].type === 'item.knife', 'OpenAI 호환 응답도 똑같이 처
 check(lastReq.url === 'https://api.groq.com/openai/v1/chat/completions', 'BASE_URL 뒤에 경로를 붙인다');
 check(lastReq.headers.Authorization === 'Bearer gsk-test', 'Bearer 로 키를 보낸다');
 check(lastReq.body.messages[0].role === 'system', '시스템 프롬프트가 첫 메시지로 간다');
+check(lastReq.signal instanceof AbortSignal, '요청에 타임아웃이 걸려 있다 — 방명록 잠금을 붙든 채 무한정 기다리지 않는다');
 
 // ── 프롬프트에 "말 그대로" 원칙이 실린다 ─────────────────
 say({ verdict: 'flavor_only', effects: [], reason: 'x' });

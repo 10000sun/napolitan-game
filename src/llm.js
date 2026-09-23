@@ -30,6 +30,9 @@ const PROVIDERS = {
             maxOutputTokens: 2048,
           },
         }),
+        // 방명록 잠금(최대 2분)을 붙든 채 무한정 기다리지 않는다. 실패하면
+        // writeBook() 이 이미 offlineFallback 으로 받는다 — 글은 그대로 남는다.
+        signal: AbortSignal.timeout(30_000),
       });
       if (!res.ok) throw new Error(`gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
       const data = await res.json();
@@ -62,6 +65,7 @@ const PROVIDERS = {
           ...(key ? { Authorization: `Bearer ${key}` } : {}),
         },
         body: JSON.stringify(b),
+        signal: AbortSignal.timeout(30_000),   // 재시도 한 번까지 최악 60초, LOCK_MS(2분) 안에 끝난다
       });
 
       let res = await send(body);
@@ -95,6 +99,7 @@ const PROVIDERS = {
           system,
           messages: [{ role: 'user', content: user }],
         }),
+        signal: AbortSignal.timeout(30_000),
       });
       if (!res.ok) throw new Error(`anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
       const data = await res.json();
