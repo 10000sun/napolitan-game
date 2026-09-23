@@ -59,7 +59,7 @@ class Audio2 {
     o.start(t); o.stop(t + dur);
   }
   noise(dur = 0.12, gain = 0.15) {
-    if (!this.ctx) return;
+    if (!this.ctx || this.muted) return;
     const n = Math.floor(this.ctx.sampleRate * dur);
     const buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate);
     const d = buf.getChannelData(0);

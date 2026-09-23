@@ -175,6 +175,22 @@ const pw2 = buildWorld([{ id: 1, effects: [
 ] }]);
 check(pw2.rules.map((r) => r.target).join() === '칼', '주울 수 없는 것(지니고 들어오는 지도, 쓰임 없는 물체)의 줍기 규칙은 빠진다');
 
+// ── 자물쇠 숫자는 다른 무엇보다 먼저 자리를 받는다 ──────────
+// 5×5 방(바닥칸이 5개뿐인 좁은 풀)에 괴물을 최대치(20)로 채우면, 예전
+// 순서(괴물·함정·시체·물체 먼저)에서는 숫자 자리가 하나도 안 남아 자물쇠
+// 숫자가 0개 놓였다 — 그 방은 아무도 못 나가고, 못 나가면 방명록도 못
+// 써서 영영 잠기는 실제 사고였다. 숫자를 먼저 배치해 이를 막는다.
+const crowdedLock = buildWorld([{ id: 1, effects: [
+  { type: 'entity.monster', count: 20 },
+  { type: 'rule.lock', digits: 3 },
+] }], [], '714');
+const digitObjs = crowdedLock.objects.filter((o) => o.stand);
+check(digitObjs.length === 3, `풀이 좁아도 숫자 3자리가 밀려나지 않고 전부 놓인다 (실제 ${digitObjs.length}개)`);
+check(digitObjs.map((o) => o.emoji).sort().join() === [...'714'].sort().join(), '놓인 숫자가 자물쇠 번호와 정확히 같다');
+check(crowdedLock.monsters.length < 20, '숫자에게 자리를 내주느라 괴물은 그만큼 줄어든다(허용된 손해)');
+const digitCells = new Set(digitObjs.map((o) => `${o.x},${o.y}`));
+check(digitCells.size === digitObjs.length, '숫자끼리도, 다른 것과도 자리가 겹치지 않는다');
+
 // ── 이스터에그(random)는 요소당 한 번뿐 ────────────────────
 // 모델이 once 를 빠뜨려도(=반복해서 눌러 파밍하지 못하게) 코드가 못박는다.
 const egg = buildWorld([{ id: 1, effects: [

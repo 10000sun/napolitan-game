@@ -168,13 +168,33 @@ export function buildWorld(appliedRules, deaths = [], lockCode = null) {
   let cursor = 0;
   const take = (n) => pool.slice(cursor, (cursor += n)).map((c) => ({ x: c.x, y: c.y }));
 
+  // ── 자물쇠 숫자. 다른 무엇보다 먼저 자리를 받는다.
+  // 작은 방에 괴물·함정·시체·물체를 잔뜩 쌓아 두면 뒤로 밀린 숫자가 놓일 칸이
+  // 모자랄 수 있다. 몬스터가 하나 덜 나오는 건 그저 방이 좀 쉬워질 뿐이지만,
+  // 숫자 하나가 안 나오면 그 방은 아무도 못 나가고, 못 나가면 방명록도 못
+  // 쓰니 영영 잠긴다 — 그러니 숫자가 먼저다.
+  const lockObjects = [];
+  if (state.lock && lockCode) {
+    [...String(lockCode)].forEach((ch, i) => {
+      const [c] = take(1);
+      if (!c) return;   // 그래도 자리가 없을 만큼 작은 방이면 어쩔 수 없다
+      lockObjects.push({
+        id: `lock:${i}`, key: `숫자 조각 ${i + 1}`, name: `${i + 1}번째 숫자`,
+        emoji: ch, x: c.x, y: c.y,
+        where: 'anywhere', use: 'none', moves: 'still', pose: 'stand',
+        desc: `벽에 ${ch} 하나가 크게 새겨져 있다. ${i + 1}번째 자리다.`,
+        stand: true,      // 납작하게 칠하지 않는다. 무엇인지 알아볼 수 있어야 한다
+      });
+    });
+  }
+
   const monsters = take(state.monsters).map((c, i) => ({
     id: `m${i}`, x: c.x + 0.5, y: c.y + 0.5, hp: 3, alive: true, baited: 0,
   }));
   const traps = take(state.traps);
   const corpses = take(state.corpses);
 
-  const objects = [];
+  const objects = [...lockObjects];
   for (const o of state.objects) {
     if (o.where !== 'anywhere') continue;
     take(o.count).forEach((c, i) => objects.push(objectOut(o, c, i)));
@@ -247,24 +267,6 @@ export function buildWorld(appliedRules, deaths = [], lockCode = null) {
     let parts = [];
     try { parts = sanitizeParts(JSON.parse(d.parts || '[]')); } catch { parts = []; }
     corpses.push(parts.length ? { ...c, parts } : c);
-  }
-
-  // ── 자물쇠 숫자. 한 자리씩 흩어 두되, 반드시 갈 수 있는 칸에만 둔다.
-  // 못 찾으면 아무도 못 나가고, 못 나가면 방명록도 못 써서 방이 영영 잠긴다.
-  if (state.lock && lockCode) {
-    const free = pool.filter((c) => !used.has(`${c.x},${c.y}`));
-    [...String(lockCode)].forEach((ch, i) => {
-      const c = free[Math.floor((free.length / state.lock.digits) * i)] || free[i];
-      if (!c) return;
-      used.add(`${c.x},${c.y}`);
-      objects.push({
-        id: `lock:${i}`, key: `숫자 조각 ${i + 1}`, name: `${i + 1}번째 숫자`,
-        emoji: ch, x: c.x, y: c.y,
-        where: 'anywhere', use: 'none', moves: 'still', pose: 'stand',
-        desc: `벽에 ${ch} 하나가 크게 새겨져 있다. ${i + 1}번째 자리다.`,
-        stand: true,      // 납작하게 칠하지 않는다. 무엇인지 알아볼 수 있어야 한다
-      });
-    });
   }
 
   // 방에 없는 것을 대상으로 한 규칙은 내려보내지 않는다.
