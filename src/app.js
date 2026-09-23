@@ -277,7 +277,8 @@ async function dieRun(request, id, user) {
 }
 
 // ── 방명록 초기화 (마리 관리자 명령) ────────────────────────
-// 글·플레이 기록·몸 상태·"공책 읽음" 을 지운다. 사람 목록과 만든 이미지는 남긴다 (이미지는 다시 만들면 돈이 든다).
+// 글·플레이 기록·몸 상태·"공책 읽음"·방이 기억하는 값(자물쇠 번호)을 지운다.
+// 사람 목록과 만든 이미지는 남긴다 (이미지는 다시 만들면 돈이 든다).
 // 되돌릴 수 없다. 필요하면 D1 Time Travel 로 복구한다.
 async function resetBook(request) {
   const { t } = await readJson(request);
@@ -288,6 +289,7 @@ async function resetBook(request) {
   await q.resetEntries.run();
   await q.resetRuns.run();
   await q.resetBodies.run();
+  await q.resetRoom.run();
   console.log(`[reset] ${who.name}(${who.id}) 방명록 ${before.entries}줄·기록 ${before.runs}판을 지웠다`);
   return json({ ok: true, entries: before.entries, runs: before.runs });
 }

@@ -159,6 +159,7 @@ const afterMe = (await get('/api/me', { cookie: A })).body;
 check(afterBook.body.entries.length === 0 && afterBook.body.pendingWrite === null, '방명록이 비고 쓸 자격도 사라진다');
 check(afterMe.user && JSON.stringify(afterMe.lostParts) === '[]' && !afterMe.readBook && afterMe.canEnter, '사람은 남고 몸·공책 읽음·연속 입장은 처음으로');
 check((await q.assetByKey.get('웃는 가면'))?.status === 'ready', '만든 이미지는 남는다');
+check(!(await q.roomGet.get('lock')), '방이 기억하던 자물쇠 번호도 초기화되면 함께 지워진다');
 
 // ── 공책은 한 줄씩 ──────────────────────────────────────
 // 두 사람이 동시에 나와서 적으면, 한 사람은 기다렸다가 다시 적어야 한다.

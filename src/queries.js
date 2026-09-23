@@ -16,6 +16,7 @@ export function queries(store) {
     resetEntries: stmt(`DELETE FROM entries`),
     resetRuns: stmt(`DELETE FROM runs`),
     resetBodies: stmt(`UPDATE users SET lost_parts = '[]', read_book = 0`),
+    resetRoom: stmt(`DELETE FROM room`),
     countForReset: stmt(`SELECT (SELECT COUNT(*) FROM entries) AS entries, (SELECT COUNT(*) FROM runs) AS runs`),
     upsertUser: stmt(`
     INSERT INTO users (discord_id, username, avatar, created_at) VALUES (?, ?, ?, ?)
