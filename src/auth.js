@@ -3,7 +3,14 @@
 import crypto from 'node:crypto';
 import { q } from './db.js';
 
-const SECRET = () => process.env.SESSION_SECRET || 'dev-secret';
+// 비밀값이 없으면 누구나 쿠키를 위조해 남의 계정이 될 수 있으므로 기본값으로 때우지 않는다.
+const SECRET = () => {
+  const s = process.env.SESSION_SECRET;
+  if (!s || s === 'change-me-to-something-random') {
+    throw new Error('SESSION_SECRET 이 설정되지 않았습니다 (README "배포" 참고)');
+  }
+  return s;
+};
 const MAX_AGE = 30 * 86400;
 
 function sign(payload) {
