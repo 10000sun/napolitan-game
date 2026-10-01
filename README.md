@@ -1,6 +1,6 @@
 # 돌이킬 수 없는
 
-나폴리탄 괴담 [「이거 뭐임」](https://gall.dcinside.com/mgallery/board/view/?id=napolitan&no=23461)
+나폴리탄 괴담 [「돌이킬 수 없는」](https://gall.dcinside.com/mgallery/board/view/?id=napolitan&no=23461)
 을 게임으로 옮긴 것. 누구나 fork 해서 **자기 공동체용 방**을 따로 띄울 수 있다
 (Cloudflare 무료 플랜, 카드 등록 불필요). 디스코드 연동은 선택 사항이다.
 
@@ -298,7 +298,7 @@ public/
 ## 라이선스와 출처
 
 - 코드: [MIT](LICENSE)
-- 원작 괴담 [「이거 뭐임」](https://gall.dcinside.com/mgallery/board/view/?id=napolitan&no=23461)의
+- 원작 괴담 [「돌이킬 수 없는」](https://gall.dcinside.com/mgallery/board/view/?id=napolitan&no=23461)의
   저작권은 원작자에게 있다. 이 저장소는 그 설정을 게임으로 옮긴 2차 창작이며,
   `test/` 의 원작 방명록 예시는 테스트 용도다.
 - `public/tex/` 텍스처: ambientCG CC0 ([출처 표](public/tex/LICENSE.md))
