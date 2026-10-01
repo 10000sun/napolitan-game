@@ -291,8 +291,8 @@ public/
 
 ## 기여 / 브랜치 흐름
 
-`작업 브랜치` → `develop` → `main`. 작업은 `develop` 에서 새 브랜치를 따서 하고
-`develop` 으로 PR 한다. `develop` 에서 `npm test` 로 확인한 뒤 이상 없으면 `main` 으로 올린다.
+`작업 브랜치` → `develop` → `main`. 작업은 `develop` 에서 작업마다 새 브랜치를 따서 하고
+`develop` 으로 PR 한다. 머지된 브랜치는 지운다. `develop` 에서 `npm test` 로 확인한 뒤 이상 없으면 `main` 으로 올린다.
 `main` 에는 직접 푸시하지 않는다. 자세한 규칙은 [CLAUDE.md](CLAUDE.md).
 
 ## 라이선스와 출처
