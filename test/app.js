@@ -1,5 +1,6 @@
 // 요청 처리. 메모리 DB·메모리 이미지·가짜 fetch 로 워커 없이 돌린다.
 delete process.env.DEV_NO_AUTH;
+process.env.SESSION_SECRET = 'test-session-secret';
 process.env.MARI_LINK_SECRET = 'test-link-secret';
 process.env.LLM_PROVIDER = 'gemini';
 process.env.GEMINI_API_KEY = 'k';

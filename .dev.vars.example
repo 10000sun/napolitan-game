@@ -40,7 +40,8 @@ POLLINATIONS_API_KEY=
 MARI_LINK_SECRET=
 
 # ── 서버 ───────────────────────────────────────────────
-SESSION_SECRET=change-me-to-something-random
+# 필수. 비우면 서버가 시작하지 않는다. 아무 긴 랜덤 문자열로 채운다 (예: openssl rand -hex 32)
+SESSION_SECRET=
 
 # 마리 링크 없이 들어오는 건 이제 기본 동작이라 이 값과 무관하다(README "누가
 # 들어올 수 있나" 참고). 1 로 두면 그 대신 브라우저가 몇 개든 전부 같은 계정
