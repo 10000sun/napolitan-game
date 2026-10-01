@@ -1,6 +1,6 @@
 # 돌이킬 수 없는
 
-나폴리탄 괴담 [「이거 뭐임」](https://gall.dcinside.com/mgallery/board/view/?id=napolitan&no=23461)
+나폴리탄 괴담 [「돌이킬 수 없는」](https://gall.dcinside.com/mgallery/board/view/?id=napolitan&no=23461)
 을 게임으로 옮긴 것. 누구나 fork 해서 **자기 공동체용 방**을 따로 띄울 수 있다
 (Cloudflare 무료 플랜, 카드 등록 불필요). 디스코드 연동은 선택 사항이다.
 
@@ -289,10 +289,16 @@ public/
   최소한의 상식 검사(입장 후 2초 이내 클리어 거부)만 둔다.
 - **LLM 호출은 방명록 기입 때만** 일어난다. 하루 50줄이 적혀도 비용은 무시할 수준이다.
 
+## 기여 / 브랜치 흐름
+
+`작업 브랜치` → `develop` → `main`. 작업은 `develop` 에서 새 브랜치를 따서 하고
+`develop` 으로 PR 한다. `develop` 에서 `npm test` 로 확인한 뒤 이상 없으면 `main` 으로 올린다.
+`main` 에는 직접 푸시하지 않는다. 자세한 규칙은 [CLAUDE.md](CLAUDE.md).
+
 ## 라이선스와 출처
 
 - 코드: [MIT](LICENSE)
-- 원작 괴담 [「이거 뭐임」](https://gall.dcinside.com/mgallery/board/view/?id=napolitan&no=23461)의
+- 원작 괴담 [「돌이킬 수 없는」](https://gall.dcinside.com/mgallery/board/view/?id=napolitan&no=23461)의
   저작권은 원작자에게 있다. 이 저장소는 그 설정을 게임으로 옮긴 2차 창작이며,
   `test/` 의 원작 방명록 예시는 테스트 용도다.
 - `public/tex/` 텍스처: ambientCG CC0 ([출처 표](public/tex/LICENSE.md))
