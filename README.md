@@ -1,7 +1,11 @@
 # 돌이킬 수 없는
 
 나폴리탄 괴담 [「이거 뭐임」](https://gall.dcinside.com/mgallery/board/view/?id=napolitan&no=23461)
-을 게임으로 옮긴 것. 디스코드 서버 한 곳에서 돌려 쓰는 용도다.
+을 게임으로 옮긴 것. 누구나 fork 해서 **자기 공동체용 방**을 따로 띄울 수 있다
+(Cloudflare 무료 플랜, 카드 등록 불필요). 디스코드 연동은 선택 사항이다.
+
+방명록·기록은 배포한 쪽의 DB 에 따로 쌓인다. 즉 이 저장소를 배포하면
+**그 방은 당신의 사람들만의 것**이고, 다른 배포와 방명록이 섞이지 않는다.
 
 방에서 빠져나온 사람만 방명록에 한 줄을 남길 수 있고,
 **거기 적힌 것이 다음 사람의 방에 그대로 일어난다.**
@@ -54,10 +58,10 @@ LLM 이 아무 JSON 이나 뱉으면 엔진이 못 받는다. 그래서 엔진�
 LLM 출력은 **반드시** `sanitize()` 를 통과한다. 모르는 타입은 조용히 사라지고,
 범위를 벗어난 값은 잘린다 (`maze.size: 9999` → `41`).
 
-### 서버원 100명짜리 서버를 위한 안전장치
+### 공동체에서 돌릴 때의 안전장치
 
-원작에서는 "이병철 신상 책자"가 재미 포인트지만, 실제 디스코드에서는 특정
-서버원 저격·신상·혐오 표현이 그대로 박제된다. 컴파일러가 이런 글을 `swallowed`
+원작에서는 "이병철 신상 책자"가 재미 포인트지만, 실제 커뮤니티에서는 특정
+사람 저격·신상·혐오 표현이 그대로 박제된다. 컴파일러가 이런 글을 `swallowed`
 로 판정하되, 에러 메시지가 아니라 **게임 안의 목소리**로 돌려준다.
 
 > 쓰자마자 글자가 종이 속으로 가라앉아 사라졌다.
@@ -94,16 +98,32 @@ IMAGE_PROVIDER=none    # 로컬에서 이미지 과금을 막는다
 되고(연속 입장 금지 같은 걸 혼자 테스트할 때 편하다), 꺼두면 브라우저마다
 **서로 다른** 손님이 된다(여러 사람이 동시에 테스트할 때 이쪽이 맞다).
 
-### 배포
+### 배포 (내 방 만들기)
+
+처음 하는 사람은 이 순서대로 하면 된다. Cloudflare 계정만 있으면 된다.
 
 ```bash
+# 1. fork / clone 후
+npm install
 npx wrangler login
-npx wrangler secret put GEMINI_API_KEY
-npx wrangler secret put MARI_LINK_SECRET   # 마리의 MARI_NAPOLITAN_SECRET 과 같은 값
-npx wrangler secret put SESSION_SECRET     # 아무 긴 랜덤 문자열
-npm run db:init     # 원격 D1 에 표를 만든다 (처음 한 번, 스키마가 바뀔 때마다)
-npm run deploy      # https://napolitan.<계정>.workers.dev
+
+# 2. 내 계정에 저장소를 만든다 — 출력되는 id 를 wrangler.jsonc 에 붙여 넣는다
+npx wrangler d1 create napolitan                  # → database_id
+npx wrangler kv namespace create IMAGES           # → id
+
+# 3. wrangler.jsonc 의 YOUR_D1_DATABASE_ID / YOUR_KV_NAMESPACE_ID 를 위 값으로 교체
+
+# 4. 비밀값 등록
+npx wrangler secret put GEMINI_API_KEY            # https://aistudio.google.com/apikey (무료)
+npx wrangler secret put SESSION_SECRET            # 아무 긴 랜덤 문자열
+
+# 5. 표 만들고 배포
+npm run db:init                                   # 원격 D1 에 표를 만든다 (처음 한 번, 스키마가 바뀔 때마다)
+npm run deploy                                    # https://napolitan.<계정>.workers.dev
 ```
+
+배포가 끝나면 그 주소를 공유하면 끝이다. 디스코드 연동이 필요하면 아래
+"디스코드 연동(선택)" 을 본다. Gemini 대신 다른 AI 를 쓰려면 "판정을 어디에 맡길지" 참고.
 
 비밀이 아닌 설정은 `wrangler.jsonc` 의 `vars` 에 있다.
 
@@ -111,7 +131,7 @@ npm run deploy      # https://napolitan.<계정>.workers.dev
 |---|---|
 | `LLM_PROVIDER` | `gemini` / `openai` / `anthropic`. 비워 두면 채워진 키를 보고 고른다 |
 | (제공자별 키) | 아래 표 참고. secret 으로 넣는다 |
-| `MARI_LINK_SECRET` | 마리가 링크에 붙이는 표의 열쇠. 비우면 그 링크만 안 통한다(손님 입장은 그대로 된다) |
+| `MARI_LINK_SECRET` | (선택) 디스코드 봇 "마리" 링크의 열쇠. 디스코드 연동을 안 쓰면 비워 둔다 |
 | `SESSION_SECRET` | 세션 쿠키 서명용 |
 | `IMAGE_PROVIDER`, `IMAGE_DAILY_LIMIT` | 아래 "방명록 물체의 모습" |
 
@@ -119,17 +139,23 @@ npm run deploy      # https://napolitan.<계정>.workers.dev
 
 **주소만 있으면 누구나 들어온다.** 처음 오면 곧장 손님으로 입장하고,
 쿠키가 그 사람의 신분증이 된다 — 디스코드도, 링크도 필요 없다.
+특정 공동체만 들이고 싶으면 주소를 그 안에서만 공유하거나, 아래 연동을 쓴다.
 
-마리에서 `/미니게임 설정 게임:돌이킬 수 없는 주소:https://napolitan.<계정>.workers.dev`
-하면 `/미니게임 목록` 이 `{주소}/enter?u=<표>` 링크를 여전히 준다. 이 링크로
-들어오면 손님이 아니라 그 디스코드 신분으로 들어온다 — 마리가 이름을
-붙여 주는 것 말고는 손님과 다를 게 없다. 두 길 다 같은 게임을 가리키고,
-방명록도 하나를 같이 쓴다.
+### 디스코드 연동 (선택)
 
-원래 이 방을 "그 서버 사람만" 들어오게 막아 뒀던 건데, 테스트할 때마다
-디스코드를 거쳐야 해서 걷어냈다. 서버 밖 사람이 들어오는 게 걱정되면
-막는 방법은 있다 — `src/app.js` 의 `handle()` 에서 손님을 만드는 자리
-(`guestUser()` 호출) 를 지우고 `enter()` 로만 들어오게 되돌리면 된다.
+이 게임은 원래 한 디스코드 서버의 봇 "마리"(`mari/cogs/minigame.py`)가 주는
+링크로 들어오게 만들어졌다. **다른 사용자는 이걸 몰라도 된다.** 쓰고 싶다면:
+
+1. 봇이 `{주소}/enter?u=<표>` 링크를 만든다. 표 형식은 `src/link.js` 맨 위 주석에 있다
+   (`base64url(JSON) + "." + base64url(HMAC_SHA256(본문, 열쇠))`, JSON 은 `{id, n, e}`).
+2. 봇의 열쇠와 같은 값을 `npx wrangler secret put MARI_LINK_SECRET` 으로 넣는다.
+3. 이 링크로 들어온 사람은 손님이 아니라 그 디스코드 신분(이름)으로 입장한다.
+   손님 입장도 그대로 되고, 방명록은 하나를 같이 쓴다.
+
+마리를 쓰는 서버라면 `/미니게임 설정 게임:돌이킬 수 없는 주소:https://napolitan.<계정>.workers.dev`
+하면 `/미니게임 목록` 이 링크를 준다. 서버 밖 사람을 막고 싶으면 `src/app.js` 의
+`handle()` 에서 손님을 만드는 자리(`guestUser()` 호출)를 지우고 `enter()` 로만
+들어오게 되돌린다.
 
 무료 플랜은 요청당 CPU 10ms 다. 월드 생성은 1~2ms 라 여유가 있다
 (LLM·이미지 응답을 기다리는 시간은 CPU 에 들어가지 않는다).
@@ -246,7 +272,7 @@ src/
                entries 는 append-only. 스키마는 migrations/
   assets.js    방명록 물체의 모습. 캐시 → 태그 매칭 → 이미지 생성
   auth.js      세션 쿠키. 쿠키가 없으면 손님을 곧장 만들어 들여보낸다
-  link.js      마리 링크(표) 검증. 디스코드에서 오면 그 신분을 쓴다 — 필수는 아니다
+  link.js      (선택) 디스코드 봇 링크(표) 검증. 디스코드에서 오면 그 신분을 쓴다 — 필수는 아니다
 public/
   game.js      1인칭 레이캐스팅 엔진 (의존성 없음)
   ui.js        현관 · 방명록 · 게임 화면 연결
@@ -262,3 +288,14 @@ public/
 - **안티치트는 거의 없다.** 클리어 판정을 클라이언트가 보낸다. 친목 서버용이라
   최소한의 상식 검사(입장 후 2초 이내 클리어 거부)만 둔다.
 - **LLM 호출은 방명록 기입 때만** 일어난다. 하루 50줄이 적혀도 비용은 무시할 수준이다.
+
+## 라이선스와 출처
+
+- 코드: [MIT](LICENSE)
+- 원작 괴담 [「이거 뭐임」](https://gall.dcinside.com/mgallery/board/view/?id=napolitan&no=23461)의
+  저작권은 원작자에게 있다. 이 저장소는 그 설정을 게임으로 옮긴 2차 창작이며,
+  `test/` 의 원작 방명록 예시는 테스트 용도다.
+- `public/tex/` 텍스처: ambientCG CC0 ([출처 표](public/tex/LICENSE.md))
+- `fresh-assets/` 의 이미지는 AI 이미지 생성(Gemini)으로 만든 물체 에셋이다.
+  직접 쓰려면 사용 중인 생성 서비스의 약관을 확인할 것.
+- 게임이 런타임에 만드는 이미지와 방명록 글은 각 배포자의 책임이다.

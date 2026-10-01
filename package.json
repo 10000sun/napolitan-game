@@ -2,6 +2,7 @@
   "name": "napolitan-game",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "방명록이 세계를 바꾸는 나폴리탄 괴담 게임",
   "scripts": {

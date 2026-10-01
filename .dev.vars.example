@@ -34,8 +34,8 @@ IMAGE_MODEL=gemini-3.1-flash-lite-image
 IMAGE_DAILY_LIMIT=5
 POLLINATIONS_API_KEY=
 
-# ── 마리 링크 ──────────────────────────────────────────
-# 디스코드에서 마리가 주는 링크로만 들어온다. 마리 .env 의 MARI_NAPOLITAN_SECRET 과 똑같아야 한다.
+# ── 디스코드 봇 링크 (선택) ────────────────────────────
+# 디스코드 연동을 안 쓰면 비워 둔다. 쓴다면 봇(마리) .env 의 MARI_NAPOLITAN_SECRET 과 똑같아야 한다.
 # 미니게임 랭킹용 열쇠(MARI_MINIGAME_SECRET)와는 다른 값을 쓰자. 한쪽이 새도 다른 쪽은 안전하다.
 MARI_LINK_SECRET=
 

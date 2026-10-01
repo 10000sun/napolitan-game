@@ -1,4 +1,5 @@
-// Cloudflare Workers 설정. 배포: npx wrangler deploy
+// Cloudflare Workers 설정. 아래 YOUR_* 두 곳을 내 계정 값으로 바꾼 뒤 배포한다 (README "배포" 참고).
+// 배포: npx wrangler deploy
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "napolitan",
@@ -18,14 +19,14 @@
     {
       "binding": "DB",
       "database_name": "napolitan",
-      "database_id": "8af0d646-b4b5-400c-9793-ddd6c0661e38",
+      "database_id": "YOUR_D1_DATABASE_ID",
       "migrations_dir": "migrations"
     }
   ],
 
   // 생성된 이미지
   "kv_namespaces": [
-    { "binding": "IMAGES", "id": "c16c79825e2b4177966297c80fdedb77" }
+    { "binding": "IMAGES", "id": "YOUR_KV_NAMESPACE_ID" }
   ],
 
   // 비밀이 아닌 설정. 비밀값(GEMINI_API_KEY·MARI_LINK_SECRET·SESSION_SECRET)은 wrangler secret put 으로.
